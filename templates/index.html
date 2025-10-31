@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}الصفحة الرئيسية - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="text-center mb-4">
+            <i class="fas fa-mosque text-primary"></i>
+            مرحباً بك في نظام توزيع الخطباء
+        </h1>
+        <p class="text-center text-muted lead">نظام ذكي لتوزيع الخطباء على المساجد مع ضمان العدالة والشمولية</p>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-5">
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <i class="fas fa-building"></i>
+                <h3>{{ stats.total_mosques }}</h3>
+                <p>إجمالي المساجد</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <i class="fas fa-users"></i>
+                <h3>{{ stats.total_khutbas }}</h3>
+                <p>إجمالي الخطباء</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <i class="fas fa-calendar-check"></i>
+                <h3>{{ stats.total_assignments }}</h3>
+                <p>إجمالي التعيينات</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <i class="fas fa-calendar-week"></i>
+                <h3>{{ stats.this_week_assignments }}</h3>
+                <p>تعيينات هذا الأسبوع</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features Section -->
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4">مميزات النظام</h2>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-balance-scale fa-3x text-primary mb-3"></i>
+                <h5 class="card-title">التوزيع العادل</h5>
+                <p class="card-text">ضمان وصول كل خطيب لجميع المساجد بمرور الوقت مع تجنب التكرار</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-sync-alt fa-3x text-success mb-3"></i>
+                <h5 class="card-title">الراحة الدورية</h5>
+                <p class="card-text">توفير أسبوع راحة لكل خطيب كل ثلاثة أسابيع لضمان التوزيع الأمثل</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-retweet fa-3x text-info mb-3"></i>
+                <h5 class="card-title">إدارة المواضيع</h5>
+                <p class="card-text">تغيير المواضيع بعد انتهاء الخطيب من جميع المساجد لضمان التنويع</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-route fa-3x text-warning mb-3"></i>
+                <h5 class="card-title">تتبع المسارات</h5>
+                <p class="card-text">متابعة المساجد التي زارها كل خطيب لتجنب التكرار والتأكد من الشمولية</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-clock fa-3x text-danger mb-3"></i>
+                <h5 class="card-title">التوقيت الدقيق</h5>
+                <p class="card-text">جدولة أسبوعية دقيقة للجمعات مع إمكانية التخطيط المسبق</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-mobile-alt fa-3x text-secondary mb-3"></i>
+                <h5 class="card-title">واجهة حديثة</h5>
+                <p class="card-text">واجهة عربية حديثة ومتجاوبة تعمل على جميع الأجهزة</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-5">
+    <div class="col-12">
+        <h2 class="mb-4">إجراءات سريعة</h2>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <a href="/mosques" class="btn btn-primary w-100">
+            <i class="fas fa-building"></i><br>
+            إدارة المساجد
+        </a>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <a href="/khutbas" class="btn btn-success w-100">
+            <i class="fas fa-users"></i><br>
+            إدارة الخطباء
+        </a>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <a href="/distribution" class="btn btn-info w-100">
+            <i class="fas fa-calendar-alt"></i><br>
+            التوزيع الأسبوعي
+        </a>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <button class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#helpModal">
+            <i class="fas fa-question-circle"></i><br>
+            المساعدة
+        </button>
+    </div>
+</div>
+
+<!-- Algorithm Explanation -->
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain"></i>
+                    شرح آلية عمل الخوارزمية
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>🎯 الهدف الرئيسي</h6>
+                        <p>ضمان وصول كل خطيب لجميع المساجد بموضوعه الحالي قبل الانتقال لموضوع جديد</p>
+                        
+                        <h6>🔄 آلية العمل</h6>
+                        <ul>
+                            <li>كل خطيب يبدأ بموضوع معين</li>
+                            <li>يتم توزيعه على مساجد لم يزرها من قبل</li>
+                            <li>عند انتهاء جميع المساجد → تغيير الموضوع</li>
+                            <li>إعادة تعيين قائمة المساجد المزارة</li>
+                            <li>دورة جديدة بموضوع جديد</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6>⚖️ مميزات التوزيع الذكي</h6>
+                        <ul>
+                            <li>تجنب التكرار في المساجد</li>
+                            <li>ضمان الشمولية والعدالة</li>
+                            <li>راحة دورية للخطباء</li>
+                            <li>مرونة في إضافة خطباء جدد</li>
+                            <li>تتبع دقيق للمسارات</li>
+                        </ul>
+                        
+                        <h6>📊 مؤشرات الأداء</h6>
+                        <p class="text-muted small">
+                            نسبة التغطية: المساجد المزارة ÷ إجمالي المساجد<br>
+                            معدل الإنجاز: تحديد نسبة إنجاز كل خطيب لموضوعه الحالي
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Help Modal -->
+<div class="modal fade" id="helpModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">مساعدة النظام</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6>كيفية البدء:</h6>
+                <ol>
+                    <li><strong>إضافة المساجد:</strong> اذهب إلى قسم "المساجد" وأضف جميع المساجد</li>
+                    <li><strong>إضافة الخطباء:</strong> في قسم "الخطباء" يمكنك إضافة خطباء جدد مع تحديد المساجد المزارة مسبقاً</li>
+                    <li><strong>التوزيع:</strong> في قسم "التوزيع" قم بإنشاء توزيع جديد للجمعة القادمة</li>
+                    <li><strong>متابعة التقدم:</strong> راقب حالة الخطباء في قسم "الخطباء"</li>
+                </ol>
+                
+                <h6>علامات التنبيه:</h6>
+                <ul>
+                    <li><span class="badge bg-warning">يتغير الموضوع</span> - عندما ينتهي خطيب من جميع المساجد</li>
+                    <li><span class="badge bg-info">في راحة</span> - الخطيب له أسبوع راحة</li>
+                    <li><span class="badge bg-success">جاهز</span> - الخطيب متاح للتوزيع</li>
+                </ul>
+                
+                <h6>نصائح هامة:</h6>
+                <ul>
+                    <li>تأكد من إضافة جميع المساجد قبل البدء</li>
+                    <li>لخطباء جدد، حدد المساجد المزارة مسبقاً لتجنب التكرار</li>
+                    <li>تابع التقدم بانتظام لضمان التوزيع الأمثل</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Animation on load
+document.addEventListener('DOMContentLoaded', function() {
+    // Animate cards
+    const cards = document.querySelectorAll('.card');
+    cards.forEach((card, index) => {
+        setTimeout(() => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.5s ease';
+            
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 100);
+        }, index * 100);
+    });
+});
+</script>
+{% endblock %}

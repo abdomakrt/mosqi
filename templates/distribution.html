@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block title %}التوزيع الأسبوعي - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>
+                <i class="fas fa-calendar-alt"></i>
+                التوزيع الأسبوعي
+            </h1>
+            <div>
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createDistributionModal">
+                    <i class="fas fa-plus"></i>
+                    إنشاء توزيع جديد
+                </button>
+                <button class="btn btn-info" onclick="refreshDistribution()">
+                    <i class="fas fa-sync-alt"></i>
+                    تحديث
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Distribution Statistics -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-calendar-week fa-2x text-primary mb-2"></i>
+                <h4>{{ stats.current_friday }}</h4>
+                <p class="text-muted">الجمعة القادمة</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-clipboard-list fa-2x text-success mb-2"></i>
+                <h4>{{ stats.total_assignments }}</h4>
+                <p class="text-muted">التعيينات لهذا الأسبوع</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-check-circle fa-2x text-info mb-2"></i>
+                <h4>{{ stats.assigned_mosques }}</h4>
+                <p class="text-muted">المساجد المغطاة</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-2"></i>
+                <h4>{{ stats.remaining_mosques }}</h4>
+                <p class="text-muted">المساجد المتبقية</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Distribution Progress -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5>نسبة التغطية لهذا الأسبوع</h5>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar bg-success" 
+                         style="width: {{ (stats.assigned_mosques / stats.total_mosques * 100) if stats.total_mosques > 0 else 0 }}%">
+                        {{ "%.1f"|format((stats.assigned_mosques / stats.total_mosques * 100) if stats.total_mosques > 0 else 0) }}%
+                    </div>
+                </div>
+                <small class="text-muted">
+                    {{ stats.assigned_mosques }} من {{ stats.total_mosques }} مساجد مغطاة
+                    {% if stats.remaining_mosques > 0 %}
+                        - يحتاج {{ stats.remaining_mosques }} مسجد إضافي
+                    {% else %}
+                        - تم تغطية جميع المساجد! ✅
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Current Week Distribution -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i>
+                    تعيينات الجمعة القادمة ({{ stats.current_friday }})
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                {% if assignments %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>المسجد</th>
+                                    <th>الخطيب</th>
+                                    <th>موضوع الخطبة</th>
+                                    <th>الحالة</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assignment in assignments %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ assignment.mosque_name }}</strong>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center text-white me-2">
+                                                {{ assignment.khateb_name[0] }}
+                                            </div>
+                                            <span>{{ assignment.khateb_name }}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="text-truncate d-inline-block" style="max-width: 250px;" 
+                                              title="{{ assignment.khutba_topic }}">
+                                            {{ assignment.khutba_topic }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if assignment.status == 'confirmed' %}
+                                            <span class="badge bg-success">مؤكد</span>
+                                        {% elif assignment.status == 'completed' %}
+                                            <span class="badge bg-info">مكتمل</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ assignment.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-primary" 
+                                                    onclick="viewAssignmentDetails({{ assignment.id }})"
+                                                    title="عرض التفاصيل">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-warning" 
+                                                    onclick="editAssignment({{ assignment.id }})"
+                                                    title="تعديل">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" 
+                                                    onclick="deleteAssignment({{ assignment.id }})"
+                                                    title="حذف">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-calendar-times fa-4x text-muted mb-3"></i>
+                        <h5 class="text-muted">لا توجد تعيينات لهذا الأسبوع</h5>
+                        <p class="text-muted">قم بإنشاء توزيع جديد لجمعة {{ stats.current_friday }}</p>
+                        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createDistributionModal">
+                            <i class="fas fa-plus"></i>
+                            إنشاء التوزيع الآن
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Previous Weeks History -->
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i>
+                    سجل الأسابيع السابقة
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="previousWeeks">
+                    <!-- سيتم تحميل البيانات هنا عبر JavaScript -->
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">جاري التحميل...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Distribution Modal -->
+<div class="modal fade" id="createDistributionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">إنشاء توزيع جديد</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="createDistributionForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="targetDate" class="form-label">تاريخ الجمعة</label>
+                        <input type="date" class="form-control" id="targetDate" name="target_date"
+                               value="{{ stats.current_friday }}" required>
+                        <div class="form-text">التاريخ الافتراضي هو الجمعة القادمة</div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <h6><i class="fas fa-info-circle"></i> معلومات التوزيع:</h6>
+                        <ul class="mb-0">
+                            <li>سيتم اختيار خطباء متاحين فقط (غير في راحة)</li>
+                            <li>سيتم تجنب التكرار للمساجد المزارة حديثاً</li>
+                            <li>سيتم ضمان تغطية جميع المساجد إن أمكن</li>
+                            <li>سيتم حفظ الجدول للمراجعة لاحقاً</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-success">إنشاء التوزيع</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Assignment Details Modal -->
+<div class="modal fade" id="assignmentDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">تفاصيل التعيين</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="assignmentDetailsContent">
+                <!-- سيتم تحميل المحتوى هنا -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إغلاق</button>
+                <button type="button" class="btn btn-primary" onclick="printAssignment()">
+                    <i class="fas fa-print"></i>
+                    طباعة
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadPreviousWeeks();
+    setMinDate();
+});
+
+function setMinDate() {
+    const today = new Date();
+    const friday = new Date(today);
+    const dayOfWeek = today.getDay();
+    
+    // حساب الجمعة القادمة
+    const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    friday.setDate(today.getDate() + (daysUntilFriday === 0 ? 7 : daysUntilFriday));
+    
+    document.getElementById('targetDate').min = friday.toISOString().split('T')[0];
+}
+
+function refreshDistribution() {
+    location.reload();
+}
+
+function loadPreviousWeeks() {
+    fetch('/api/distribution/history')
+        .then(response => response.json())
+        .then(data => {
+            displayPreviousWeeks(data);
+        })
+        .catch(error => {
+            console.error('Error loading previous weeks:', error);
+            document.getElementById('previousWeeks').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    خطأ في تحميل سجل الأسابيع السابقة
+                </div>
+            `;
+        });
+}
+
+function displayPreviousWeeks(data) {
+    if (data.length === 0) {
+        document.getElementById('previousWeeks').innerHTML = `
+            <div class="text-center text-muted">
+                <i class="fas fa-history fa-2x mb-2"></i>
+                <p>لا توجد سجلات للأسابيع السابقة</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '<div class="row">';
+    data.forEach(week => {
+        html += `
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h6 class="card-title">${week.week_date}</h6>
+                        <p class="card-text">
+                            <strong>التعيينات:</strong> ${week.assignment_count}
+                        </p>
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewWeekDetails('${week.week_date}')">
+                            <i class="fas fa-eye"></i>
+                            عرض التفاصيل
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    document.getElementById('previousWeeks').innerHTML = html;
+}
+
+function viewWeekDetails(weekDate) {
+    fetch(`/api/distribution/week/${weekDate}`)
+        .then(response => response.json())
+        .then(data => {
+            let html = '<div class="table-responsive"><table class="table table-sm">';
+            html += '<thead><tr><th>المسجد</th><th>الخطيب</th><th>الموضوع</th></tr></thead><tbody>';
+            
+            data.assignments.forEach(assignment => {
+                html += `
+                    <tr>
+                        <td>${assignment.mosque_name}</td>
+                        <td>${assignment.khateb_name}</td>
+                        <td>${assignment.khutba_topic}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            document.getElementById('assignmentDetailsContent').innerHTML = html;
+            new bootstrap.Modal(document.getElementById('assignmentDetailsModal')).show();
+        })
+        .catch(error => {
+            console.error('Error loading week details:', error);
+            alert('خطأ في تحميل تفاصيل الأسبوع');
+        });
+}
+
+function viewAssignmentDetails(assignmentId) {
+    fetch(`/api/assignment/${assignmentId}`)
+        .then(response => response.json())
+        .then(data => {
+            const html = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>معلومات التعيين</h6>
+                        <p><strong>الجمعة:</strong> ${data.week_date}</p>
+                        <p><strong>المسجد:</strong> ${data.mosque_name}</p>
+                        <p><strong>الخطيب:</strong> ${data.khateb_name}</p>
+                        <p><strong>الموضوع:</strong> ${data.khutba_topic}</p>
+                        <p><strong>الحالة:</strong> ${data.status}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>معلومات إضافية</h6>
+                        <p><strong>تاريخ الإنشاء:</strong> ${data.created_at}</p>
+                        <p><strong>الرقم المرجعي:</strong> #${data.id}</p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('assignmentDetailsContent').innerHTML = html;
+            new bootstrap.Modal(document.getElementById('assignmentDetailsModal')).show();
+        })
+        .catch(error => {
+            console.error('Error loading assignment details:', error);
+            alert('خطأ في تحميل تفاصيل التعيين');
+        });
+}
+
+function editAssignment(assignmentId) {
+    // يمكن تطوير هذه الوظيفة لاحقاً
+    alert('وظيفة التعديل قيد التطوير');
+}
+
+function deleteAssignment(assignmentId) {
+    if (confirm('هل أنت متأكد من حذف هذا التعيين؟')) {
+        fetch(`/api/assignment/${assignmentId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('خطأ في حذف التعيين: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('حدث خطأ أثناء حذف التعيين');
+        });
+    }
+}
+
+function printAssignment() {
+    window.print();
+}
+
+// Handle create distribution form
+document.getElementById('createDistributionForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const targetDate = document.getElementById('targetDate').value;
+    
+    const submitBtn = this.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الإنشاء...';
+    submitBtn.disabled = true;
+    
+    fetch('/distribution/create', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `target_date=${targetDate}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('خطأ في إنشاء التوزيع: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('حدث خطأ أثناء إنشاء التوزيع');
+    })
+    .finally(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    });
+});
+</script>
+{% endblock %}

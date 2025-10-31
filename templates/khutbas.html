@@ -1,0 +1,459 @@
+{% extends "base.html" %}
+
+{% block title %}إدارة الخطباء - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>
+                <i class="fas fa-users"></i>
+                إدارة الخطباء
+            </h1>
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addKhatebModal">
+                <i class="fas fa-user-plus"></i>
+                إضافة خطيب جديد
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                <h4>{{ khutbas|length }}</h4>
+                <p class="text-muted">إجمالي الخطباء</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                <h4 id="availableCount">-</h4>
+                <p class="text-muted">خطباء متاحون</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-pause-circle fa-2x text-warning mb-2"></i>
+                <h4 id="restCount">-</h4>
+                <p class="text-muted">في راحة</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="fas fa-exclamation-triangle fa-2x text-danger mb-2"></i>
+                <h4 id="needChangeCount">-</h4>
+                <p class="text-muted">يحتاجون تغيير الموضوع</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Khutbas Table -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i>
+                    قائمة الخطباء
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>الرقم</th>
+                                <th>اسم الخطيب</th>
+                                <th>الهاتف</th>
+                                <th>الموضوع الحالي</th>
+                                <th>التقدم</th>
+                                <th>الحالة</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if khutbas %}
+                                {% for khateb in khutbas %}
+                                <tr id="khatebRow{{ khateb.id }}">
+                                    <td>{{ khateb.id }}</td>
+                                    <td>
+                                        <strong>{{ khateb.name }}</strong>
+                                    </td>
+                                    <td>{{ khateb.phone or 'غير محدد' }}</td>
+                                    <td>
+                                        <span class="text-truncate d-inline-block" style="max-width: 200px;" 
+                                              title="{{ khateb.current_topic }}">
+                                            {{ khateb.current_topic }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar" 
+                                                 id="progressBar{{ khateb.id }}"
+                                                 role="progressbar" 
+                                                 style="width: 0%">
+                                            </div>
+                                        </div>
+                                        <small class="text-muted" id="progressText{{ khateb.id }}"></small>
+                                    </td>
+                                    <td>
+                                        <span class="badge" id="statusBadge{{ khateb.id }}">
+                                            جاري التحميل...
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-info" 
+                                                    onclick="viewKhatebDetails({{ khateb.id }})"
+                                                    title="عرض التفاصيل">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-warning" 
+                                                    onclick="showChangeTopicModal({{ khateb.id }})"
+                                                    title="تغيير الموضوع">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" 
+                                                    onclick="deleteKhateb({{ khateb.id }})"
+                                                    title="حذف">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-4">
+                                        <i class="fas fa-users fa-3x mb-3 d-block"></i>
+                                        لا توجد خطباء مسجلين حالياً
+                                        <br>
+                                        <small>قم بإضافة الخطباء للبدء في التوزيع</small>
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Khateb Modal -->
+<div class="modal fade" id="addKhatebModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">إضافة خطيب جديد</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/khateb/add">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="khatebName" class="form-label">اسم الخطيب *</label>
+                                <input type="text" class="form-control" id="khatebName" name="name" required
+                                       placeholder="مثال: الشيخ أحمد محمد">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="khatebPhone" class="form-label">رقم الهاتف</label>
+                                <input type="tel" class="form-control" id="khatebPhone" name="phone"
+                                       placeholder="مثال: 0501234567">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="khatebTopic" class="form-label">موضوع الخطبة الحالي</label>
+                        <input type="text" class="form-control" id="khatebTopic" name="topic"
+                               placeholder="موضوع الخطبة الأولية">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">المساجد المزارة مسبقاً (اختياري)</label>
+                        <p class="text-muted small">اختر المساجد التي زارها هذا الخطيب بموضوعه الحالي لتجنب التكرار</p>
+                        <div class="row" id="visitedMosquesContainer">
+                            {% for mosque in mosques %}
+                            <div class="col-md-6 mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" 
+                                           name="visited_mosques" value="{{ mosque.id }}" 
+                                           id="mosque{{ mosque.id }}">
+                                    <label class="form-check-label" for="mosque{{ mosque.id }}">
+                                        {{ mosque.name }}
+                                    </label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% if not mosques %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            لا توجد مساجد مسجلة حالياً. قم بإضافة المساجد أولاً.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-success">إضافة الخطيب</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Change Topic Modal -->
+<div class="modal fade" id="changeTopicModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">تغيير موضوع الخطيب</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="changeTopicForm">
+                <div class="modal-body">
+                    <input type="hidden" id="changeTopicKhatebId">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">الخطيب:</label>
+                        <p class="fw-bold" id="changeTopicKhatebName">-</p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">الموضوع الحالي:</label>
+                        <p class="text-muted" id="currentTopic">-</p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="newTopic" class="form-label">الموضوع الجديد *</label>
+                        <input type="text" class="form-control" id="newTopic" name="new_topic" required
+                               placeholder="ادخل الموضوع الجديد للخطبة">
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>تنبيه:</strong> عند تغيير الموضوع، سيتم إعادة تعيين قائمة المساجد المزارة للخطيب
+                        وسيتمكن من زيارة جميع المساجد بالموضوع الجديد.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-warning">تغيير الموضوع</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Khateb Details Modal -->
+<div class="modal fade" id="khatebDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">تفاصيل الخطيب</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="khatebDetailsContent">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadAllKhutbasStatus();
+    setInterval(loadAllKhutbasStatus, 30000); // تحديث كل 30 ثانية
+});
+
+function loadAllKhutbasStatus() {
+    fetch('/api/khutbas/status')
+        .then(response => response.json())
+        .then(data => {
+            updateKhutbasDisplay(data);
+            updateStatistics(data);
+        })
+        .catch(error => {
+            console.error('Error loading khutbas status:', error);
+        });
+}
+
+function updateKhutbasDisplay(khutbas) {
+    khutbas.forEach(khateb => {
+        // Update progress bar
+        const progressBar = document.getElementById(`progressBar${khateb.id}`);
+        const progressText = document.getElementById(`progressText${khateb.id}`);
+        const statusBadge = document.getElementById(`statusBadge${khateb.id}`);
+        
+        if (progressBar) {
+            progressBar.style.width = `${khateb.progress_percentage}%`;
+            progressBar.textContent = `${Math.round(khateb.progress_percentage)}%`;
+        }
+        
+        if (progressText) {
+            progressText.textContent = `${khateb.visited_count} من ${khateb.total_mosques} مساجد`;
+        }
+        
+        if (statusBadge) {
+            statusBadge.className = 'badge';
+            
+            if (khateb.should_change_topic) {
+                statusBadge.classList.add('bg-warning');
+                statusBadge.textContent = 'يتغير الموضوع';
+                statusBadge.title = 'انتهى من جميع المساجد - يحتاج تغيير الموضوع';
+            } else if (khateb.rest_weeks > 0) {
+                statusBadge.classList.add('bg-info');
+                statusBadge.textContent = 'في راحة';
+                statusBadge.title = `أسبوع راحة - ${khateb.rest_weeks} أسبوع متبقي`;
+            } else {
+                statusBadge.classList.add('bg-success');
+                statusBadge.textContent = 'جاهز';
+                statusBadge.title = 'جاهز للتوزيع';
+            }
+        }
+    });
+}
+
+function updateStatistics(khutbas) {
+    const available = khutbas.filter(k => k.rest_weeks === 0 && !k.should_change_topic).length;
+    const resting = khutbas.filter(k => k.rest_weeks > 0).length;
+    const needChange = khutbas.filter(k => k.should_change_topic).length;
+    
+    document.getElementById('availableCount').textContent = available;
+    document.getElementById('restCount').textContent = resting;
+    document.getElementById('needChangeCount').textContent = needChange;
+}
+
+function showChangeTopicModal(khatebId) {
+    fetch(`/khateb/${khatebId}/status`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('changeTopicKhatebId').value = data.khateb_id;
+            document.getElementById('changeTopicKhatebName').textContent = data.name;
+            document.getElementById('currentTopic').textContent = data.current_topic;
+            document.getElementById('newTopic').value = '';
+            
+            new bootstrap.Modal(document.getElementById('changeTopicModal')).show();
+        })
+        .catch(error => {
+            console.error('Error loading khateb status:', error);
+            alert('خطأ في تحميل بيانات الخطيب');
+        });
+}
+
+function viewKhatebDetails(khatebId) {
+    fetch(`/khateb/${khatebId}/status`)
+        .then(response => response.json())
+        .then(data => {
+            const content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>معلومات أساسية</h6>
+                        <p><strong>الاسم:</strong> ${data.name}</p>
+                        <p><strong>الموضوع الحالي:</strong> ${data.current_topic}</p>
+                        <p><strong>عدد المساجد المزارة:</strong> ${data.visited_count} من ${data.total_mosques}</p>
+                        <p><strong>نسبة الإنجاز:</strong> ${Math.round(data.progress_percentage)}%</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>إحصائيات التقدم</h6>
+                        <div class="progress mb-3">
+                            <div class="progress-bar" style="width: ${data.progress_percentage}%">
+                                ${Math.round(data.progress_percentage)}%
+                            </div>
+                        </div>
+                        <p><strong>الحالة:</strong> 
+                            <span class="badge ${data.should_change_topic ? 'bg-warning' : data.rest_weeks > 0 ? 'bg-info' : 'bg-success'}">
+                                ${data.should_change_topic ? 'يتغير الموضوع' : data.rest_weeks > 0 ? 'في راحة' : 'جاهز'}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('khatebDetailsContent').innerHTML = content;
+            new bootstrap.Modal(document.getElementById('khatebDetailsModal')).show();
+        })
+        .catch(error => {
+            console.error('Error loading khateb details:', error);
+            alert('خطأ في تحميل تفاصيل الخطيب');
+        });
+}
+
+function deleteKhateb(khatebId) {
+    if (confirm('هل أنت متأكد من حذف هذا الخطيب؟ سيتم حذف جميع التعيينات المرتبطة به.')) {
+        fetch(`/khateb/${khatebId}/delete`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('خطأ في حذف الخطيب: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('حدث خطأ أثناء حذف الخطيب');
+        });
+    }
+}
+
+// Handle change topic form
+document.getElementById('changeTopicForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const khatebId = document.getElementById('changeTopicKhatebId').value;
+    const newTopic = document.getElementById('newTopic').value;
+    
+    if (!newTopic.trim()) {
+        alert('يرجى إدخال الموضوع الجديد');
+        return;
+    }
+    
+    fetch(`/khateb/${khatebId}/change_topic`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `new_topic=${encodeURIComponent(newTopic)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('خطأ في تغيير الموضوع: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('حدث خطأ أثناء تغيير الموضوع');
+    });
+});
+</script>
+{% endblock %}
