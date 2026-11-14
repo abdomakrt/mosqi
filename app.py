@@ -813,19 +813,35 @@ def create_directories():
     if is_new_database:
         init_sample_data()
 
+    # الاحتفاظ بأحدث نسختين احتياطيتين فقط على الخادم
+    try:
+        prune_local_backups()
+    except Exception:
+        pass
+
 
 # ============================================
 # النسخ الاحتياطي والاستعادة
 # ============================================
 
 BACKUP_DIR_NAME = 'instance'
-MAX_AUTO_BACKUPS = 10
+# عدد النسخ الاحتياطية المحفوظة على الخادم (تُحذف الأقدم تلقائياً)
+MAX_LOCAL_BACKUPS = 2
 REQUIRED_TABLES = ('mosque', 'khateb', 'assignment', 'weekly_schedule')
 
 
 def get_db_path():
     """المسار المطلق لملف قاعدة البيانات"""
     return os.path.join(app.instance_path, 'khutba_distribution.db')
+
+
+def _is_backup_file(name):
+    """هل هذا الملف نسخة احتياطية معروفة (مع استثناء ملف قاعدة البيانات نفسه)"""
+    if not name.endswith('.db'):
+        return False
+    if name == os.path.basename(get_db_path()):
+        return False
+    return name.startswith('khutba_backup_') or name.startswith('backup_')
 
 
 def create_local_backup(prefix='khutba_backup_'):
@@ -850,36 +866,44 @@ def create_local_backup(prefix='khutba_backup_'):
     finally:
         src.close()
 
-    prune_local_backups(prefix)
+    prune_local_backups()
     return name
 
 
-def prune_local_backups(prefix, keep=MAX_AUTO_BACKUPS):
-    """حذف النسخ القديمة من نفس النوع مع الإبقاء على الأحدث"""
+def prune_local_backups(keep=MAX_LOCAL_BACKUPS):
+    """حذف النسخ القديمة من الخادم مع الإبقاء على الأحدث فقط"""
     try:
-        files = sorted(f for f in os.listdir(app.instance_path)
-                       if f.startswith(prefix) and f.endswith('.db'))
+        names = [f for f in os.listdir(app.instance_path) if _is_backup_file(f)]
     except OSError:
         return
-    for f in files[:-keep] if len(files) > keep else []:
+
+    # الترتيب من الأحدث إلى الأقدم
+    def _key(name):
         try:
-            os.remove(os.path.join(app.instance_path, f))
+            mtime = os.stat(os.path.join(app.instance_path, name)).st_mtime
+        except OSError:
+            mtime = 0
+        return (mtime, name)
+
+    names.sort(key=_key, reverse=True)
+
+    for name in names[keep:]:
+        try:
+            os.remove(os.path.join(app.instance_path, name))
         except OSError:
             pass
 
 
 def list_local_backups():
-    """قائمة النسخ الاحتياطية المحفوظة في مجلد الخادم"""
+    """قائمة النسخ الاحتياطية المحفوظة في مجلد الخادم (الأحدث أولاً)"""
     items = []
     try:
         names = os.listdir(app.instance_path)
     except OSError:
         return items
 
-    for f in sorted(names, reverse=True):
-        if not f.endswith('.db'):
-            continue
-        if not (f.startswith('khutba_backup_') or f.startswith('backup_')):
+    for f in names:
+        if not _is_backup_file(f):
             continue
         path = os.path.join(app.instance_path, f)
         if not os.path.isfile(path):
@@ -888,11 +912,16 @@ def list_local_backups():
             st = os.stat(path)
             size_kb = max(1, round(st.st_size / 1024.0, 1))
             mtime = datetime.fromtimestamp(st.st_mtime).strftime('%Y-%m-%d %H:%M')
+            ts = st.st_mtime
         except OSError:
             continue
-        items.append({'name': f, 'size_kb': size_kb, 'mtime': mtime})
+        items.append({'name': f, 'size_kb': size_kb, 'mtime': mtime, '_ts': ts})
 
-    return items
+    items.sort(key=lambda x: (x['_ts'], x['name']), reverse=True)
+    for item in items:
+        item.pop('_ts', None)
+
+    return items[:MAX_LOCAL_BACKUPS]
 
 
 def safe_backup_path(name):
@@ -930,13 +959,21 @@ def restore_database(source_path):
     """استعادة قاعدة البيانات من ملف نسخة احتياطية (مع حفظ نسخة أمان أولاً)"""
     db_path = get_db_path()
 
-    # نسخة أمان من الوضع الحالي قبل الاستبدال
-    safety = create_local_backup('khutba_backup_before_restore_')
+    # نسخة مؤقتة من الملف المصدر قبل أي حذف تلقائي للنسخ القديمة
+    tmp_src_dir = tempfile.mkdtemp(prefix='khutba_restore_src_')
+    tmp_src = os.path.join(tmp_src_dir, 'source.db')
+    try:
+        shutil.copyfile(source_path, tmp_src)
 
-    # استبدال الملف بشكل آمن
-    tmp_path = db_path + '.restoring'
-    shutil.copyfile(source_path, tmp_path)
-    os.replace(tmp_path, db_path)
+        # نسخة أمان من الوضع الحالي قبل الاستبدال
+        safety = create_local_backup('khutba_backup_before_restore_')
+
+        # استبدال الملف بشكل آمن
+        tmp_path = db_path + '.restoring'
+        shutil.copyfile(tmp_src, tmp_path)
+        os.replace(tmp_path, db_path)
+    finally:
+        shutil.rmtree(tmp_src_dir, ignore_errors=True)
 
     # إعادة فتح الاتصالات على الملف الجديد
     db.session.remove()
