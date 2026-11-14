@@ -135,8 +135,12 @@
                                     <td>
                                         {% if assignment.status == 'confirmed' %}
                                             <span class="badge bg-success">مؤكد</span>
+                                        {% elif assignment.status == 'pending' %}
+                                            <span class="badge bg-warning">قيد التأكيد</span>
                                         {% elif assignment.status == 'completed' %}
                                             <span class="badge bg-info">مكتمل</span>
+                                        {% elif assignment.status == 'cancelled' %}
+                                            <span class="badge bg-secondary">ملغى</span>
                                         {% else %}
                                             <span class="badge bg-secondary">{{ assignment.status }}</span>
                                         {% endif %}
@@ -148,6 +152,18 @@
                                                     title="عرض التفاصيل">
                                                 <i class="fas fa-eye"></i>
                                             </button>
+                                            {% if assignment.status == 'pending' %}
+                                            <button class="btn btn-sm btn-outline-success" 
+                                                    onclick="confirmAssignment({{ assignment.id }})"
+                                                    title="تأكيد">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary" 
+                                                    onclick="apologizeAssignment({{ assignment.id }})"
+                                                    title="اعتذار">
+                                                <i class="fas fa-user-times"></i>
+                                            </button>
+                                            {% else %}
                                             <button class="btn btn-sm btn-outline-warning" 
                                                     onclick="editAssignment({{ assignment.id }})"
                                                     title="تعديل">
@@ -158,6 +174,7 @@
                                                     title="حذف">
                                                 <i class="fas fa-trash"></i>
                                             </button>
+                                            {% endif %}
                                         </div>
                                     </td>
                                 </tr>
@@ -213,7 +230,7 @@
                 <h5 class="modal-title">إنشاء توزيع جديد</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form id="createDistributionForm">
+            <form id="createDistributionForm" novalidate>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="targetDate" class="form-label">تاريخ الجمعة</label>
@@ -234,7 +251,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="submit" class="btn btn-success">إنشاء التوزيع</button>
+                    <button type="button" class="btn btn-success" onclick="window.submitCreateDistribution()">إنشاء التوزيع</button>
                 </div>
             </form>
         </div>
@@ -426,13 +443,54 @@ function printAssignment() {
     window.print();
 }
 
+function confirmAssignment(assignmentId) {
+    if (!confirm('هل تريد تأكيد التعيين؟')) return;
+
+    fetch(`/assignment/${assignmentId}/confirm`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'تم التأكيد');
+            location.reload();
+        } else {
+            alert(data.message || 'خطأ في التأكيد');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('حدث خطأ أثناء تأكيد التعيين');
+    });
+}
+
+function apologizeAssignment(assignmentId) {
+    if (!confirm('هل أنت متأكد من تقديم اعتذار عن هذا التعيين؟\nنرجو التفكير ثانية لأن هذا عمل تطوعي ذا أجر كبير.')) return;
+
+    fetch(`/assignment/${assignmentId}/apologize`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'تم إيجاد بديل');
+            location.reload();
+        } else {
+            alert(data.message || 'لم يتم إيجاد بديل');
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('حدث خطأ أثناء معالجة الاعتذار');
+    });
+}
+
 // Handle create distribution form
-document.getElementById('createDistributionForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
+window.submitCreateDistribution = function() {
     const targetDate = document.getElementById('targetDate').value;
     
-    const submitBtn = this.querySelector('button[type="submit"]');
+    const submitBtn = document.querySelector('#createDistributionForm button.btn-success');
     const originalText = submitBtn.innerHTML;
     
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الإنشاء...';
@@ -461,6 +519,6 @@ document.getElementById('createDistributionForm').addEventListener('submit', fun
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
     });
-});
+}
 </script>
 {% endblock %}

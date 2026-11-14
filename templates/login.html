@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}تسجيل الدخول - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="text-center mb-4">
+            <h1><i class="fas fa-mosque"></i> نظام توزيع الخطباء</h1>
+            <p class="text-muted">سجّل الدخول للمتابعة</p>
+        </div>
+    </div>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body p-4">
+
+                <form method="POST" action="{{ url_for('login') }}" novalidate>
+
+                    <!-- اختيار نوع الدخول -->
+                    <div class="row g-2 mb-4">
+                        <div class="col-6">
+                            <input class="btn-check" type="radio" name="role" id="roleAdmin"
+                                   value="admin" {% if role != 'khateb' %}checked{% endif %} onchange="switchLoginRole('admin')">
+                            <label class="btn btn-outline-primary w-100" for="roleAdmin">
+                                <i class="fas fa-user-shield"></i> دخول المدير
+                            </label>
+                        </div>
+                        <div class="col-6">
+                            <input class="btn-check" type="radio" name="role" id="roleKhateb"
+                                   value="khateb" {% if role == 'khateb' %}checked{% endif %} onchange="switchLoginRole('khateb')">
+                            <label class="btn btn-outline-primary w-100" for="roleKhateb">
+                                <i class="fas fa-user"></i> دخول الخطيب
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- بيانات المدير -->
+                    <div id="adminPanel" {% if role == 'khateb' %}style="display:none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="adminPassword" class="form-label">كلمة مرور المدير</label>
+                            <input type="password" class="form-control" id="adminPassword" name="password"
+                                   placeholder="أدخل كلمة المرور" autocomplete="current-password">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-sign-in-alt"></i> دخول كمدير
+                        </button>
+                    </div>
+
+                    <!-- بيانات الخطيب -->
+                    <div id="khatebPanel" {% if role != 'khateb' %}style="display:none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="khatebPhone" class="form-label">رقم الجوال</label>
+                            <input type="tel" class="form-control" id="khatebPhone" name="phone"
+                                   placeholder="مثال: 0501234567" inputmode="numeric">
+                        </div>
+                        <div class="mb-3">
+                            <label for="khatebCode" class="form-label">رمز الدخول (6 أرقام)</label>
+                            <input type="text" class="form-control" id="khatebCode" name="code"
+                                   placeholder="أدخل الرمز المكوّن من 6 أرقام" maxlength="6" inputmode="numeric">
+                            <small class="text-muted">رمز الدخول يمنحه لك مدير النظام عند إضافتك أو تجديده</small>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-sign-in-alt"></i> دخول كخطيب
+                        </button>
+                    </div>
+
+                </form>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchLoginRole(role) {
+    if (role === 'admin') {
+        document.getElementById('adminPanel').style.display = '';
+        document.getElementById('khatebPanel').style.display = 'none';
+    } else {
+        document.getElementById('adminPanel').style.display = 'none';
+        document.getElementById('khatebPanel').style.display = '';
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}جدولي - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+
+<!-- بطاقة الخطيب -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center flex-wrap">
+                    <div>
+                        <h4 class="mb-1"><i class="fas fa-user"></i> {{ khateb.name }}</h4>
+                        <p class="text-muted mb-0">
+                            <i class="fas fa-book-open"></i>
+                            الموضوع الحالي: <strong>{{ khateb.current_topic or 'غير محدد' }}</strong>
+                        </p>
+                        <p class="text-muted mb-0 mt-1">
+                            <i class="fas fa-mosque"></i>
+                            المساجد المزارة: {{ visited_count }} من {{ total_mosques }}
+                        </p>
+                    </div>
+                    <div style="min-width: 220px;">
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar {% if needs_new_topic %}bg-danger{% else %}bg-success{% endif %}"
+                                 style="width: {% if total_mosques %}{{ (visited_count / total_mosques * 100) | round(1) }}{% else %}0{% endif %}%">
+                                {% if total_mosques %}{{ (visited_count / total_mosques * 100) | round(1) }}%{% else %}0%{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- تنبيه: انتهى من جميع المساجد -->
+{% if needs_new_topic %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-danger text-center" style="font-weight: 600;">
+            <i class="fas fa-exclamation-triangle"></i>
+            انتهيت من جميع المساجد بهذا الموضوع — يرجى إرسال موضوع جديد
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- تنبيه: يوجد موضوع مقترح بانتظار الاعتماد -->
+{% if khateb.pending_topic %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <i class="fas fa-clock"></i>
+            تم إرسال موضوعك الجديد: <strong>{{ khateb.pending_topic }}</strong> — بانتظار اعتماد مدير النظام.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- جدول الأسابيع الأربعة القادمة -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-calendar-week"></i> جدولي للأسابيع الأربعة القادمة</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>الأسبوع (جمعة)</th>
+                                <th>المسجد</th>
+                                <th>موضوع الخطبة</th>
+                                <th>الحالة</th>
+                                <th>الإجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for week in schedule %}
+                                {% if week.assignments %}
+                                    {% for a in week.assignments %}
+                                    <tr class="{% if a.status == 'cancelled' %}table-light{% endif %}">
+                                        <td>{{ week.week_date }}</td>
+                                        <td>{{ a.mosque.name if a.mosque else '-' }}</td>
+                                        <td>{{ a.khutba_topic }}</td>
+                                        <td>
+                                            {% if a.status == 'confirmed' %}
+                                                <span class="badge bg-primary">مؤكد</span>
+                                            {% elif a.status == 'pending' %}
+                                                <span class="badge bg-info">قيد التأكيد</span>
+                                            {% elif a.status == 'completed' %}
+                                                <span class="badge bg-success">أُديت</span>
+                                            {% elif a.status == 'cancelled' %}
+                                                <span class="badge bg-secondary">ملغى</span>
+                                            {% else %}
+                                                <span class="badge bg-light text-dark">{{ a.status }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if a.status != 'cancelled' %}
+                                            <div class="btn-group" role="group">
+                                                <form method="POST" action="{{ url_for('my_complete_assignment', assignment_id=a.id) }}"
+                                                      style="display:inline"
+                                                      onsubmit="return confirm('هل تريد تسجيل أنك أديت هذه الخطبة؟');">
+                                                    <button type="submit" class="btn btn-sm btn-success">
+                                                        <i class="fas fa-check"></i> أدّيت الخطبة
+                                                    </button>
+                                                </form>
+                                                <form method="POST" action="{{ url_for('my_apologize_assignment', assignment_id=a.id) }}"
+                                                      style="display:inline"
+                                                      onsubmit="return confirm('هل أنت متأكد من الاعتذار عن هذه الخطبة؟');">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="fas fa-user-times"></i> اعتذرت
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr class="table-light">
+                                        <td>{{ week.week_date }}</td>
+                                        <td colspan="4" class="text-center text-muted">لا يوجد تعيين في هذا الأسبوع</td>
+                                    </tr>
+                                {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- إرسال موضوع جديد -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-paper-plane"></i> إرسال موضوع خطبة جديد</h5>
+            </div>
+            <div class="card-body">
+                {% if khateb.pending_topic %}
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle"></i>
+                        لديك موضوع قيد الاعتماد حالياً: <strong>{{ khateb.pending_topic }}</strong>
+                    </div>
+                {% endif %}
+                <form method="POST" action="{{ url_for('my_submit_topic') }}" novalidate>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-8">
+                            <label for="newTopic" class="form-label">موضوع الخطبة الجديد</label>
+                            <input type="text" class="form-control" id="newTopic" name="topic" maxlength="300"
+                                   placeholder="اكتب موضوع الخطبة الجديد">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="fas fa-send"></i> إرسال للمدير
+                            </button>
+                        </div>
+                    </div>
+                    <small class="text-muted">سيظهر الموضوع للمدير في صفحة الإعدادات ليقوم باعتماده.</small>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

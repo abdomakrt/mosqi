@@ -136,7 +136,7 @@
                 <h5 class="modal-title">إضافة مسجد جديد</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="/mosque/add">
+            <form method="POST" action="/mosque/add" novalidate>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="mosqueName" class="form-label">اسم المسجد *</label>
@@ -173,7 +173,7 @@
                 <h5 class="modal-title">تعديل المسجد</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form id="editMosqueForm">
+            <form id="editMosqueForm" method="POST" novalidate>
                 <div class="modal-body">
                     <input type="hidden" id="editMosqueId">
                     
@@ -194,7 +194,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="submit" class="btn btn-primary">حفظ التعديلات</button>
+                    <button type="button" class="btn btn-primary" onclick="window.submitEditMosque()">حفظ التعديلات</button>
                 </div>
             </form>
         </div>
@@ -207,16 +207,19 @@
 <script>
 // Global mosque data (populated from server)
 window.mosqueData = {{ mosques|tojson }};
+window.currentEditMosqueId = null;
 
 function editMosque(mosqueId) {
     const mosque = window.mosqueData.find(m => m.id === mosqueId);
     if (!mosque) return;
-    
+
+    window.currentEditMosqueId = mosque.id;
     document.getElementById('editMosqueId').value = mosque.id;
+    document.getElementById('editMosqueForm').action = '/mosque/' + mosque.id + '/edit';
     document.getElementById('editMosqueName').value = mosque.name;
     document.getElementById('editMosqueAddress').value = mosque.address || '';
     document.getElementById('editMosqueCapacity').value = mosque.capacity || '';
-    
+
     new bootstrap.Modal(document.getElementById('editMosqueModal')).show();
 }
 
@@ -243,30 +246,15 @@ function deleteMosque(mosqueId) {
     }
 }
 
-// Handle edit form submission
-document.getElementById('editMosqueForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const mosqueId = document.getElementById('editMosqueId').value;
-    const formData = new FormData(this);
-    
-    fetch(`/mosque/${mosqueId}/edit`, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            location.reload();
-        } else {
-            alert('خطأ في تعديل المسجد: ' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('حدث خطأ أثناء تعديل المسجد');
-    });
-});
+window.submitEditMosque = function() {
+    const mosqueId = window.currentEditMosqueId;
+    const form = document.getElementById('editMosqueForm');
+    const formData = new FormData(form);
+    fetch('/mosque/' + mosqueId + '/edit', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => { if (data.success) location.reload(); else alert(data.message); })
+    .catch(err => { console.error(err); alert('خطأ'); });
+}
 
 // Form validation
 document.getElementById('addMosqueModal').addEventListener('shown.bs.modal', function() {

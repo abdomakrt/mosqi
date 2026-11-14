@@ -159,7 +159,7 @@
                 <h5 class="modal-title">إضافة خطيب جديد</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="/khateb/add">
+            <form method="POST" action="/khateb/add" novalidate>
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-md-6">
@@ -182,6 +182,34 @@
                         <label for="khatebTopic" class="form-label">موضوع الخطبة الحالي</label>
                         <input type="text" class="form-control" id="khatebTopic" name="topic"
                                placeholder="موضوع الخطبة الأولية">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">نظام التوفر</label>
+                                <select class="form-select" name="availability_mode">
+                                    <option value="always" selected>متاح دائماً</option>
+                                    <option value="alternate">متاح أسبوع ويغيب الأسبوع التالي</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">إزاحة الدورة (اختياري)</label>
+                                <input type="number" class="form-control" name="alternate_offset" value="0" min="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">المساجد المستثناة (لا يُوزع عليه)</label>
+                        <select class="form-select" name="forbidden_mosques" multiple size="4">
+                            {% for mosque in mosques %}
+                            <option value="{{ mosque.id }}">{{ mosque.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">يمكن الضغط Ctrl/Shift للاختيار المتعدد</small>
                     </div>
                     
                     <div class="mb-3">
@@ -211,7 +239,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="submit" class="btn btn-success">إضافة الخطيب</button>
+                    <button type="button" class="btn btn-success" onclick="window.submitAddKhateb()">إضافة الخطيب</button>
                 </div>
             </form>
         </div>
@@ -226,7 +254,7 @@
                 <h5 class="modal-title">تغيير موضوع الخطيب</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form id="changeTopicForm">
+            <form id="changeTopicForm" novalidate>
                 <div class="modal-body">
                     <input type="hidden" id="changeTopicKhatebId">
                     
@@ -254,7 +282,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="submit" class="btn btn-warning">تغيير الموضوع</button>
+                    <button type="button" class="btn btn-warning" onclick="window.submitChangeTopic()">تغيير الموضوع</button>
                 </div>
             </form>
         </div>
@@ -286,6 +314,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadAllKhutbasStatus();
     setInterval(loadAllKhutbasStatus, 30000); // تحديث كل 30 ثانية
+    loadPendingAssignmentsForKhutbas();
 });
 
 function loadAllKhutbasStatus() {
@@ -298,6 +327,60 @@ function loadAllKhutbasStatus() {
         .catch(error => {
             console.error('Error loading khutbas status:', error);
         });
+}
+
+function loadPendingAssignmentsForKhutbas() {
+    const currentFriday = '{{ current_friday }}';
+    if (!currentFriday) return;
+
+    fetch(`/api/distribution/week/${currentFriday}`)
+        .then(res => res.json())
+        .then(data => {
+            if (!data.assignments) return;
+            data.assignments.forEach(a => {
+                if (a.status === 'pending') {
+                    const row = document.getElementById(`khatebRow${a.khateb_id}`);
+                    if (row) {
+                        const cell = row.querySelector('td:last-child .btn-group');
+                        if (cell) {
+                            // إضافة زر التأكيد والاعتذار أمام الخطيب
+                            const confirmBtn = document.createElement('button');
+                            confirmBtn.className = 'btn btn-sm btn-outline-success';
+                            confirmBtn.title = 'تأكيد التعيين';
+                            confirmBtn.innerHTML = '<i class="fas fa-check"></i>';
+                            confirmBtn.onclick = () => {
+                                if (!confirm('هل تريد تأكيد هذا التعيين؟')) return;
+                                fetch(`/assignment/${a.id}/confirm`, { method: 'POST' })
+                                    .then(r => r.json()).then(d => { alert(d.message); location.reload(); });
+                            };
+
+                            const apologizeBtn = document.createElement('button');
+                            apologizeBtn.className = 'btn btn-sm btn-outline-secondary ms-1';
+                            apologizeBtn.title = 'اعتذار عن الخطبة';
+                            apologizeBtn.innerHTML = '<i class="fas fa-user-times"></i>';
+                            apologizeBtn.onclick = () => {
+                                if (!confirm('هل أنت متأكد من الاعتذار عن هذه الخطبة؟')) return;
+                                fetch(`/assignment/${a.id}/apologize`, { method: 'POST' })
+                                    .then(r => r.json()).then(d => { alert(d.message); location.reload(); });
+                            };
+
+                            // اضف الأزرار إذا لم تكن موجودة
+                            cell.prepend(apologizeBtn);
+                            cell.prepend(confirmBtn);
+                        }
+                    }
+                }
+            });
+        })
+        .catch(err => console.error('Error loading pending assignments:', err));
+}
+
+function apologizeWeek(khatebId) {
+    if (!confirm('هل تريد الاعتذار عن الأسبوع كاملًا؟ سيتم تعيين بديل لك ووضعك في راحة الأسبوع.')) return;
+    fetch(`/khateb/${khatebId}/apologize_week`, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => { alert(d.message); location.reload(); })
+        .catch(err => { console.error(err); alert('حدث خطأ'); });
 }
 
 function updateKhutbasDisplay(khutbas) {
@@ -424,9 +507,15 @@ function deleteKhateb(khatebId) {
 }
 
 // Handle change topic form
-document.getElementById('changeTopicForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
+window.submitAddKhateb = function() {
+    const form = document.querySelector('form[action="/khateb/add"]');
+    const formData = new FormData(form);
+    fetch('/khateb/add', { method: 'POST', body: formData })
+    .then(response => { location.reload(); })
+    .catch(err => { console.error(err); alert('خطأ'); });
+}
+
+window.submitChangeTopic = function() {
     const khatebId = document.getElementById('changeTopicKhatebId').value;
     const newTopic = document.getElementById('newTopic').value;
     
@@ -454,6 +543,6 @@ document.getElementById('changeTopicForm').addEventListener('submit', function(e
         console.error('Error:', error);
         alert('حدث خطأ أثناء تغيير الموضوع');
     });
-});
+}
 </script>
 {% endblock %}
