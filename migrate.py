@@ -37,6 +37,8 @@ MIGRATIONS = {
         ('pending_topic', 'VARCHAR(300)'),
         ('pending_topic_mode', 'VARCHAR(20)'),
         ('pending_topic_approved', 'INTEGER DEFAULT 0'),
+        ('seasonal_topic', 'VARCHAR(300)'),
+        ('seasonal_until', 'DATE'),
     ],
 }
 

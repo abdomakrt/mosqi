@@ -315,7 +315,11 @@
                             <tr class="table-warning">
                                 <td><strong>{{ khateb.name }}</strong></td>
                                 <td>{{ khateb.phone or 'غير محدد' }}</td>
-                                <td>{{ khateb.current_topic }}</td>
+                                <td>{{ khateb.current_topic }}
+                                    {% if khateb.is_seasonal_active() %}
+                                        <span class="badge bg-info">موضوع موسمي: {{ khateb.seasonal_topic }}</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ khateb._visited_count }} / {{ total_mosques }}</td>
                                 <td>
                                     {% if khateb._wa_link %}
@@ -332,6 +336,59 @@
                                 <td colspan="5" class="text-center text-muted py-4">
                                     <i class="fas fa-check-circle fa-2x mb-2 d-block text-success"></i>
                                     لا يوجد خطباء بحاجة إلى موضوع جديد حالياً
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- المواضيع الموسمية السارية -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-star"></i> المواضيع الموسمية السارية</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>الخطيب</th>
+                                <th>الموضوع الأساسي</th>
+                                <th>الموضوع الموسمي</th>
+                                <th>ساري حتى</th>
+                                <th>إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set seasonal_list = seasonal_khutbas %}
+                            {% for khateb in seasonal_list %}
+                            <tr class="table-info">
+                                <td><strong>{{ khateb.name }}</strong></td>
+                                <td>{{ khateb.current_topic }}</td>
+                                <td><strong>{{ khateb.seasonal_topic }}</strong></td>
+                                <td>{{ khateb.seasonal_until.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('khateb_cancel_seasonal_topic', khateb_id=khateb.id) }}"
+                                          style="display:inline"
+                                          onsubmit="return confirm('إلغاء الموضوع الموسمي لهذا الخطيب؟');">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-times"></i> إلغاء الآن
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <i class="fas fa-star fa-2x mb-2 d-block"></i>
+                                    لا توجد مواضيع موسمية سارية حالياً
                                 </td>
                             </tr>
                             {% endfor %}

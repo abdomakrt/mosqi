@@ -122,6 +122,72 @@ ADMIN_PASSWORD_KEY = 'admin_password_hash'
 TOPIC_MODE_RESET = 'reset'              # إعادة التعيين على جميع المساجد من جديد
 TOPIC_MODE_AFTER_CURRENT = 'after_current'  # الموضوع القادم بعد إنهاء المساجد الحالية
 
+# مناسبات إسلامية مقترحة للموضوع الموسمي (يمكن للخطيب كتابة غيرها)
+SEASONAL_OCCASIONS = [
+    'رأس السنة الهجرية',
+    'هجرة النبي ﷺ',
+    'يوم عرفة',
+    'العشر من ذي الحجة',
+    'عاشوراء',
+    'المولد النبوي',
+    'ليلة القدر',
+    'الأيام العشر من رمضان',
+    'عيد الفطر',
+    'عيد الأضحى',
+]
+
+
+def khateb_upcoming_sermon_dates(khateb):
+    """تواريخ خطب الخطيب القادمة (تعيناته غير الملغاة من اليوم فصاعداً)"""
+    assignments = Assignment.query.filter(
+        Assignment.khateb_id == khateb.id,
+        Assignment.week_date >= date.today(),
+        Assignment.status != 'cancelled'
+    ).order_by(Assignment.week_date.asc()).all()
+    return [a.week_date for a in assignments]
+
+
+def seasonal_window(khateb, weeks):
+    """حساب نافذة الموضوع الموسمي: (البداية، النهاية)
+
+    النهاية = تاريخ آخر خطبة مشمولة (خطبة واحدة أو خطبتان من خطب الخطيب القادمة).
+    إن لم تكن له تعيينات بعد، تُحسب على أساس الجمعة التي يوزّع عليها النظام افتراضياً.
+    """
+    try:
+        count = int(weeks)
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, min(2, count))
+
+    engine = DistributionEngine()
+    default_friday = engine.get_next_friday(engine.get_current_friday())
+    upcoming = khateb_upcoming_sermon_dates(khateb)
+
+    if len(upcoming) >= count:
+        end = upcoming[count - 1]
+    elif upcoming:
+        end = max(upcoming[-1], default_friday + timedelta(days=7 * (count - 1)))
+    else:
+        end = default_friday + timedelta(days=7 * (count - 1))
+
+    start = upcoming[0] if upcoming else default_friday
+    return start, end
+
+
+def apply_seasonal_to_assignments(khateb, topic, first_friday, last_friday):
+    """تحديث موضوع التعيينات المستقبلية للخطيب ضمن نافذة الموسم فقط"""
+    assignments = Assignment.query.filter(
+        Assignment.khateb_id == khateb.id,
+        Assignment.week_date >= first_friday,
+        Assignment.week_date <= last_friday,
+        Assignment.status != 'cancelled'
+    ).all()
+
+    for assignment in assignments:
+        assignment.khutba_topic = topic
+        db.session.add(assignment)
+    return len(assignments)
+
 
 def activate_new_topic(khateb, topic):
     """تفعيل موضوع جديد للخطيب: تعيين الموضوع + تصفير المساجد المزارة"""
@@ -131,6 +197,9 @@ def activate_new_topic(khateb, topic):
     khateb.pending_topic_approved = 0
     khateb.mosques_visited = json.dumps([])
     khateb.last_topic_change = datetime.utcnow()
+    # الموضوع الجديد هو البداية الجديدة => يُلغى أي موضوع موسمي قائم
+    khateb.seasonal_topic = None
+    khateb.seasonal_until = None
     db.session.add(khateb)
     return khateb
 
@@ -329,6 +398,8 @@ class Khateb(db.Model):
     pending_topic = db.Column(db.String(300), nullable=True)  # موضوع مقترح بانتظار اعتماد المدير
     pending_topic_mode = db.Column(db.String(20), nullable=True)  # reset = من جديد / after_current = بعد إنهاء المساجد
     pending_topic_approved = db.Column(db.Integer, default=0)  # 1 = معتمد ومجدول للتفعيل بعد إنهاء المساجد
+    seasonal_topic = db.Column(db.String(300), nullable=True)  # موضوع موسمي مؤقت (يعلو على الموضوع الأساسي)
+    seasonal_until = db.Column(db.Date, nullable=True)  # آخر جمعة يُطبَّق فيها الموضوع الموسمي
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     assignments = db.relationship('Assignment', backref='khateb', lazy=True)
 
@@ -350,6 +421,18 @@ class Khateb(db.Model):
     def get_visited_mosques_list(self):
         """إرجاع قائمة المساجد المزارة"""
         return json.loads(self.mosques_visited or '[]')
+
+    def is_seasonal_active(self):
+        """هل يوجد موضوع موسمي ساري الآن؟"""
+        if not self.seasonal_topic or not self.seasonal_until:
+            return False
+        return date.today() <= self.seasonal_until
+
+    def get_effective_topic(self):
+        """الموضوع المعروض للخطيب: الموضوع الموسمي إن كان سارياً، وإلا الموضوع الأساسي"""
+        if self.is_seasonal_active():
+            return self.seasonal_topic
+        return self.current_topic
 
     def get_forbidden_mosques_list(self):
         """إرجاع قائمة المساجد المستثناة"""
@@ -552,7 +635,7 @@ class DistributionEngine:
                     khateb_id=khateb.id,
                     mosque_id=chosen_mosque_id,
                     week_date=target_friday,
-                    khutba_topic=khateb.current_topic
+                    khutba_topic=khateb.get_effective_topic()
                 )
                 assignments.append(assignment)
         
@@ -570,7 +653,7 @@ class DistributionEngine:
                         khateb_id=khateb.id,
                         mosque_id=mosque.id,
                         week_date=target_friday,
-                        khutba_topic=khateb.current_topic
+                        khutba_topic=khateb.get_effective_topic()
                     )
                     assignments.append(assignment)
 
@@ -1262,15 +1345,20 @@ def settings():
         khateb._need_new_topic = bool(total_mosques) and khateb._visited_count >= total_mosques
         khateb._has_code = bool(khateb.access_code_hash)
         khateb._wa_link = whatsapp_link(khateb.phone, khateb.name)
-    
-    return render_template('settings.html', 
-                         mosques=mosques, 
-                         khutbas=khutbas, 
+        khateb._seasonal_active = khateb.is_seasonal_active()
+
+    # الخطباء الذين لديهم موضوع موسمي ساري الآن
+    seasonal_khutbas = [k for k in khutbas if k.is_seasonal_active()]
+
+    return render_template('settings.html',
+                         mosques=mosques,
+                         khutbas=khutbas,
                          assignments=assignments,
                          schedules=schedules,
                          week_dates=week_dates,
                          total_mosques=total_mosques,
                          backups=list_local_backups(),
+                         seasonal_khutbas=seasonal_khutbas,
                          admin_password_source=admin_password_source())
 
 
@@ -1881,7 +1969,9 @@ def my():
         total_mosques=total_mosques,
         visited_count=visited_count,
         needs_new_topic=needs_new_topic,
-        current_friday=current_friday
+        current_friday=current_friday,
+        seasonal_active=khateb.is_seasonal_active(),
+        seasonal_occasions=SEASONAL_OCCASIONS
     )
 
 
@@ -1913,6 +2003,73 @@ def my_apologize_assignment(assignment_id):
     else:
         flash('تم تسجيل اعتذارك عن هذه الخطبة', 'success')
     return redirect(url_for('my'))
+
+
+@app.route('/my/seasonal', methods=['POST'])
+@login_required
+def my_set_seasonal_topic():
+    """تفعيل موضوع موسمي مؤقت (خطبة واحدة أو خطبتان) - يعلو على الموضوع الأساسي"""
+    khateb = current_khateb()
+    if not khateb:
+        logout_session()
+        return redirect(url_for('login'))
+
+    topic = (request.form.get('topic', '') or '').strip()
+    if not topic:
+        flash('يرجى كتابة موضوع الخطبة الموسمي', 'error')
+        return redirect(url_for('my'))
+
+    first_friday, last_friday = seasonal_window(khateb, request.form.get('weeks', 1))
+
+    khateb.seasonal_topic = topic[:300]
+    khateb.seasonal_until = last_friday
+    db.session.add(khateb)
+
+    # تطبيق الموضوع على التعيينات المستقبلية ضمن نافذة الموسم
+    updated = apply_seasonal_to_assignments(khateb, topic, first_friday, last_friday)
+    db.session.commit()
+
+    msg = 'تم تفعيل الموضوع الموسمي: %s (حتى %s)' % (topic, last_friday.strftime('%Y-%m-%d'))
+    if updated:
+        msg += ' — تم تحديث %d تعيين قادم' % updated
+    flash(msg, 'success')
+    return redirect(url_for('my'))
+
+
+@app.route('/my/seasonal/cancel', methods=['POST'])
+@login_required
+def my_cancel_seasonal_topic():
+    """إلغاء الموضوع الموسمي والعودة للموضوع الأساسي"""
+    khateb = current_khateb()
+    if not khateb:
+        logout_session()
+        return redirect(url_for('login'))
+
+    khateb.seasonal_topic = None
+    khateb.seasonal_until = None
+    db.session.add(khateb)
+    db.session.commit()
+
+    flash('تم إلغاء الموضوع الموسمي، وعاد موضوعك الأساسي', 'success')
+    return redirect(url_for('my'))
+
+
+@app.route('/khateb/<int:khateb_id>/seasonal/cancel', methods=['POST'])
+@admin_required
+def khateb_cancel_seasonal_topic(khateb_id):
+    """إلغاء الموضوع الموسمي لخطيب (رقابة إدارية)"""
+    khateb = Khateb.query.get(khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'error')
+        return redirect(url_for('settings'))
+
+    khateb.seasonal_topic = None
+    khateb.seasonal_until = None
+    db.session.add(khateb)
+    db.session.commit()
+
+    flash('تم إلغاء الموضوع الموسمي للخطيب %s' % khateb.name, 'success')
+    return redirect(url_for('settings'))
 
 
 @app.route('/my/topic', methods=['POST'])

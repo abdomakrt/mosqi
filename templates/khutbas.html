@@ -93,9 +93,12 @@
                                     <td>{{ khateb.phone or 'غير محدد' }}</td>
                                     <td>
                                         <span class="text-truncate d-inline-block" style="max-width: 200px;" 
-                                              title="{{ khateb.current_topic }}">
-                                            {{ khateb.current_topic }}
+                                              title="{{ khateb.get_effective_topic() }}">
+                                            {{ khateb.get_effective_topic() }}
                                         </span>
+                                        {% if khateb.is_seasonal_active() %}
+                                            <span class="badge bg-info">موضوع موسمي</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         <div class="progress" style="height: 20px;">

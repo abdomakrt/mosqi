@@ -14,7 +14,10 @@
                         <h4 class="mb-1"><i class="fas fa-user"></i> {{ khateb.name }}</h4>
                         <p class="text-muted mb-0">
                             <i class="fas fa-book-open"></i>
-                            الموضوع الحالي: <strong>{{ khateb.current_topic or 'غير محدد' }}</strong>
+                            الموضوع الحالي: <strong>{{ khateb.get_effective_topic() or 'غير محدد' }}</strong>
+                            {% if seasonal_active %}
+                                <span class="badge bg-info">موضوع موسمي</span>
+                            {% endif %}
                         </p>
                         <p class="text-muted mb-0 mt-1">
                             <i class="fas fa-mosque"></i>
@@ -34,6 +37,28 @@
         </div>
     </div>
 </div>
+
+<!-- تنبيه: موضوع موسمي ساري -->
+{% if seasonal_active %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap">
+            <span>
+                <i class="fas fa-star"></i>
+                موضوعك الموسمي الحالي: <strong>{{ khateb.seasonal_topic }}</strong>
+                — ساري حتى <strong>{{ khateb.seasonal_until.strftime('%Y-%m-%d') }}</strong>
+                (ثم يعود موضوعك الأساسي تلقائياً).
+            </span>
+            <form method="POST" action="{{ url_for('my_cancel_seasonal_topic') }}" style="display:inline"
+                  onsubmit="return confirm('هل تريد إلغاء الموضوع الموسمي والعودة لموضوعك الأساسي؟');">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-times"></i> إلغاء الموضوع الموسمي
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- تنبيه: انتهى من جميع المساجد -->
 {% if needs_new_topic %}
@@ -132,6 +157,54 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- موضوع موسمي مؤقت -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-star"></i> موضوع موسمي مؤقت</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    للمواسم الإسلامية (رأس السنة الهجرية، هجرة النبي ﷺ...) — يُطبَّق على خطبة أو خطبتين
+                    في جدولك المعتاد، ثم يعود موضوعك الأساسي تلقائياً.
+                </p>
+                <form method="POST" action="{{ url_for('my_set_seasonal_topic') }}" novalidate>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-6">
+                            <label for="seasonalTopic" class="form-label">موضوع الخطبة الموسمي</label>
+                            <input type="text" class="form-control" id="seasonalTopic" name="topic" maxlength="300"
+                                   list="seasonalOccasions" placeholder="اختر من القائمة أو اكتب موضوعاً">
+                            <datalist id="seasonalOccasions">
+                                {% for occ in seasonal_occasions %}
+                                <option value="{{ occ }}"></option>
+                                {% endfor %}
+                            </datalist>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">المدة</label>
+                            <select class="form-select" name="weeks">
+                                <option value="1">خطبة واحدة (الجمعة القادمة)</option>
+                                <option value="2">خطبتان (الجمعتان القادمتان)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-info w-100">
+                                <i class="fas fa-star"></i> تفعيل الموضوع الموسمي
+                            </button>
+                        </div>
+                    </div>
+                    {% if seasonal_active %}
+                    <small class="text-muted d-block mt-2">
+                        يمكنك تعديله بتفعيل موضوع جديد (سيستبدل الحالي) أو إلغائه من الشريط بالأعلى.
+                    </small>
+                    {% endif %}
+                </form>
             </div>
         </div>
     </div>
