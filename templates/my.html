@@ -72,22 +72,23 @@
 </div>
 {% endif %}
 
-<!-- تنبيه: يوجد موضوع مقترح بانتظار الاعتماد -->
+<!-- تنبيه: يوجد موضوع الخطبة القادمة مجدول -->
 {% if khateb.pending_topic %}
 <div class="row mb-4">
     <div class="col-12">
-        {% if khateb.pending_topic_approved %}
-        <div class="alert alert-info">
-            <i class="fas fa-calendar-check"></i>
-            موضوعك القادم: <strong>{{ khateb.pending_topic }}</strong> — معتمد ومجدول،
-            وسيُطبَّق تلقائياً بعد إنهائك جميع المساجد بالموضوع الحالي.
+        <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap">
+            <span>
+                <i class="fas fa-calendar-check"></i>
+                موضوع خطبتك القادمة: <strong>{{ khateb.pending_topic }}</strong>
+                — يُفعَّل تلقائياً بعد إنهائك جميع المساجد بالموضوع الحالي.
+            </span>
+            <form method="POST" action="{{ url_for('my_cancel_pending_topic') }}" style="display:inline"
+                  onsubmit="return confirm('هل تريد إلغاء موضوع الخطبة القادمة؟');">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-times"></i> إلغاء
+                </button>
+            </form>
         </div>
-        {% else %}
-        <div class="alert alert-warning">
-            <i class="fas fa-clock"></i>
-            طلب موضوعك الجديد: <strong>{{ khateb.pending_topic }}</strong> — بانتظار اعتماد مدير النظام.
-        </div>
-        {% endif %}
     </div>
 </div>
 {% endif %}
@@ -142,7 +143,13 @@
                                                 </button>
                                             </form>
                                             {% else %}
-                                                <span class="text-muted">-</span>
+                                            <form method="POST" action="{{ url_for('my_undo_apologize', assignment_id=a.id) }}"
+                                                  style="display:inline"
+                                                  onsubmit="return confirm('هل تريد التراجع عن الإلغاء وإرجاع التعيين؟');">
+                                                <button type="submit" class="btn btn-sm btn-outline-success">
+                                                    <i class="fas fa-undo"></i> تراجع عن الإلغاء
+                                                </button>
+                                            </form>
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -215,14 +222,13 @@
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-paper-plane"></i> طلب موضوع خطبة جديد</h5>
+                <h5 class="mb-0"><i class="fas fa-paper-plane"></i> موضوع خطبة جديد</h5>
             </div>
             <div class="card-body">
                 {% if khateb.pending_topic %}
                     <div class="alert alert-info mb-3">
                         <i class="fas fa-info-circle"></i>
-                        لديك طلب موضوع قائم{% if khateb.pending_topic_approved %} (معتمد ومجدول){% else %} (بانتظار الاعتماد){% endif %}:
-                        <strong>{{ khateb.pending_topic }}</strong>
+                        موضوع خطبتك القادمة مجدول حالياً: <strong>{{ khateb.pending_topic }}</strong>
                     </div>
                 {% endif %}
                 <form method="POST" action="{{ url_for('my_submit_topic') }}" novalidate>
@@ -240,14 +246,14 @@
                             <label class="form-check-label" for="modeReset">
                                 <strong>إعادة تعييني على جميع المساجد من جديد</strong>
                                 <br>
-                                <small class="text-muted">يبدأ الموضوع الجديد من أول مسجد، وتُصفّر قائمة المساجد المزارة.</small>
+                                <small class="text-muted">يبدأ الموضوع الجديد من أول مسجد، وتُصفّر قائمة المساجد المزارة فوراً.</small>
                             </label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="mode" id="modeAfter"
                                    value="after_current">
                             <label class="form-check-label" for="modeAfter">
-                                <strong>هذا هو الموضوع القادم بعد انتهاء المساجد</strong>
+                                <strong>هذا هو موضوع الخطبة القادمة بعد انتهاء المساجد</strong>
                                 <br>
                                 <small class="text-muted">
                                     تكمل خطبك الحالية في باقي المساجد، ثم يُفعَّل الموضوع الجديد تلقائياً بعد إنهائها.
@@ -256,11 +262,12 @@
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-warning">
-                        <i class="fas fa-send"></i> إرسال الطلب للمدير
+                    <button type="submit" class="btn btn-warning"
+                            onclick="return confirm('هل تريد تأكيد الموضوع الجديد وتطبيقه مباشرة؟');">
+                        <i class="fas fa-check"></i> تأكيد
                     </button>
                     <small class="text-muted d-block mt-2">
-                        يراجع المدير الطلب ويعتمده، ويظهر لك ما تم اعتماده في أعلى الصفحة.
+                        يُطبَّق فوراً دون انتظار أي اعتماد.
                     </small>
                 </form>
             </div>

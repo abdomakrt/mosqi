@@ -400,12 +400,12 @@
     </div>
 </div>
 
-<!-- مواضيع بانتظار اعتماد المدير -->
+<!-- مواضيع الخطبة القادمة المجدولة -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-inbox"></i> مواضيع جديدة بانتظار الاعتماد</h5>
+                <h5 class="mb-0"><i class="fas fa-inbox"></i> مواضيع الخطبة القادمة المجدولة</h5>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -427,27 +427,10 @@
                                 <td>{{ khateb.current_topic }}</td>
                                 <td><strong class="text-success">{{ khateb.pending_topic }}</strong></td>
                                 <td>
-                                    {% if khateb.pending_topic_mode == 'after_current' %}
-                                        <span class="badge bg-info">موضوع قادم بعد إنهاء المساجد</span>
-                                    {% else %}
-                                        <span class="badge bg-primary">إعادة تعيين على جميع المساجد</span>
-                                    {% endif %}
-                                    {% if khateb.pending_topic_approved %}
-                                        <span class="badge bg-success">معتمد ومجدول</span>
-                                    {% else %}
-                                        <span class="badge bg-warning">بانتظار الاعتماد</span>
-                                    {% endif %}
+                                    <span class="badge bg-info">موضوع الخطبة القادمة</span>
+                                    <span class="badge bg-success">مجدول</span>
                                 </td>
                                 <td>
-                                    {% if not khateb.pending_topic_approved %}
-                                    <form method="POST" action="{{ url_for('khateb_approve_topic', khateb_id=khateb.id) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('اعتماد الموضوع الجديد للخطيب؟');">
-                                        <button type="submit" class="btn btn-sm btn-primary">
-                                            <i class="fas fa-check"></i> اعتماد
-                                        </button>
-                                    </form>
-                                    {% else %}
                                     <form method="POST" action="{{ url_for('khateb_activate_topic', khateb_id=khateb.id) }}"
                                           style="display:inline"
                                           onsubmit="return confirm('تفعيل الموضوع الآن وتصفير المساجد المزارة؟');">
@@ -455,10 +438,9 @@
                                             <i class="fas fa-bolt"></i> تفعيل الآن
                                         </button>
                                     </form>
-                                    {% endif %}
                                     <form method="POST" action="{{ url_for('khateb_reject_topic', khateb_id=khateb.id) }}"
                                           style="display:inline"
-                                          onsubmit="return confirm('إلغاء الطلب؟');">
+                                          onsubmit="return confirm('إلغاء الموضوع المجدول؟');">
                                         <button type="submit" class="btn btn-sm btn-outline-danger">
                                             <i class="fas fa-times"></i> إلغاء
                                         </button>
@@ -474,7 +456,7 @@
                             <tr>
                                 <td colspan="5" class="text-center text-muted py-4">
                                     <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
-                                    لا توجد مواضيع بانتظار الاعتماد
+                                    لا توجد مواضيع خطبة القادمة مجدولة
                                 </td>
                             </tr>
                             {% endfor %}

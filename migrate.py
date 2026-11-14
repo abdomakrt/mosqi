@@ -40,6 +40,9 @@ MIGRATIONS = {
         ('seasonal_topic', 'VARCHAR(300)'),
         ('seasonal_until', 'DATE'),
     ],
+    'assignment': [
+        ('replacement_of_id', 'INTEGER'),
+    ],
 }
 
 

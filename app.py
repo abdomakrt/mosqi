@@ -447,6 +447,7 @@ class Assignment(db.Model):
     week_date = db.Column(db.Date, nullable=False)  # تاريخ الجمعة
     khutba_topic = db.Column(db.String(300), nullable=False)
     status = db.Column(db.String(20), default='confirmed')  # pending, confirmed, completed, cancelled
+    replacement_of_id = db.Column(db.Integer, nullable=True)  # التعيين الأصلي الذي حُلّ محلّه هذا التعيين
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
@@ -1676,7 +1677,8 @@ def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
             mosque_id=target_mosque,
             week_date=target_week,
             khutba_topic=replacement_khateb.current_topic,
-            status='pending'
+            status='pending',
+            replacement_of_id=assignment.id
         )
         db.session.add(new_assignment)
         db.session.flush()
@@ -2005,6 +2007,49 @@ def my_apologize_assignment(assignment_id):
     return redirect(url_for('my'))
 
 
+@app.route('/my/assignment/<int:assignment_id>/undo_apologize', methods=['POST'])
+@login_required
+def my_undo_apologize(assignment_id):
+    """التراجع عن اعتذار الخطيب: إعادة التعيين الملغى وإلغاء البديل الذي حُلّ محلّه"""
+    khateb = current_khateb()
+    if not khateb:
+        logout_session()
+        return redirect(url_for('login'))
+
+    assignment = Assignment.query.get(assignment_id)
+    if not assignment or assignment.khateb_id != khateb.id:
+        flash('التعيين غير موجود', 'error')
+        return redirect(url_for('my'))
+
+    if assignment.status != 'cancelled':
+        flash('هذا التعيين غير ملغى', 'error')
+        return redirect(url_for('my'))
+
+    # إلغاء التعيين البديل (إن وُجد) لأنه لم تعد هناك حاجة إليه بعد التراجع
+    replacements = Assignment.query.filter_by(replacement_of_id=assignment.id).all()
+    for rep in replacements:
+        if rep.status != 'pending':
+            continue
+        # إزالة المسجد من زيارات الخطيب البديل (إذ لم يؤدِّ الخطبة بعد)
+        rep_khateb = Khateb.query.get(rep.khateb_id)
+        if rep_khateb:
+            visited = rep_khateb.get_visited_mosques_list()
+            if rep.mosque_id in visited:
+                visited.remove(rep.mosque_id)
+                rep_khateb.mosques_visited = json.dumps(visited)
+                db.session.add(rep_khateb)
+        rep.status = 'cancelled'
+        db.session.add(rep)
+
+    # إعادة التعيين الأصلي
+    assignment.status = 'confirmed'
+    db.session.add(assignment)
+    db.session.commit()
+
+    flash('تم التراجع عن الإلغاء، وأُعيد تعيينك في هذا الأسبوع', 'success')
+    return redirect(url_for('my'))
+
+
 @app.route('/my/seasonal', methods=['POST'])
 @login_required
 def my_set_seasonal_topic():
@@ -2075,9 +2120,11 @@ def khateb_cancel_seasonal_topic(khateb_id):
 @app.route('/my/topic', methods=['POST'])
 @login_required
 def my_submit_topic():
-    """طلب موضوع جديد من الخطيب مع تحديد طريقة التطبيق:
-       - reset: إعادة التعيين على جميع المساجد من جديد
-       - after_current: الموضوع القادم بعد إنهاء المساجد الحالية
+    """تأكيد موضوع خطبة جديد من الخطيب (تطبيق مباشر بدون تدخل المدير)
+
+       - reset: يُفعَّل فوراً وتُصفَّر المساجد المزارة (بداية جديدة)
+       - after_current: يُجدول ويكون موضوع الخطبة القادمة، ويُفعَّل تلقائياً
+         بعد إنهاء الخطيب جميع المساجد
     """
     khateb = current_khateb()
     if not khateb:
@@ -2093,16 +2140,40 @@ def my_submit_topic():
     if mode not in (TOPIC_MODE_RESET, TOPIC_MODE_AFTER_CURRENT):
         mode = TOPIC_MODE_RESET
 
-    khateb.pending_topic = topic[:300]
-    khateb.pending_topic_mode = mode
+    if mode == TOPIC_MODE_AFTER_CURRENT:
+        # موضوع الخطبة القادمة: يبقى الموضوع الحالي حتى تنتهي المساجد،
+        # ثم يُفعَّل تلقائياً
+        khateb.pending_topic = topic[:300]
+        khateb.pending_topic_mode = TOPIC_MODE_AFTER_CURRENT
+        khateb.pending_topic_approved = 1
+        db.session.add(khateb)
+        db.session.commit()
+        flash('تم تأكيد موضوع الخطبة القادمة: %s — سيُطبَّق تلقائياً بعد إنهائك جميع المساجد' % topic, 'success')
+        return redirect(url_for('my'))
+
+    # تطبيق مباشر: بداية جديدة بالموضوع الجديد على جميع المساجد
+    activate_new_topic(khateb, topic[:300])
+    db.session.commit()
+    flash('تم اعتماد موضوعك الجديد: %s — وأُعيد تعيينك على جميع المساجد' % topic, 'success')
+    return redirect(url_for('my'))
+
+
+@app.route('/my/topic/cancel', methods=['POST'])
+@login_required
+def my_cancel_pending_topic():
+    """إلغاء موضوع الخطبة القادمة المجدول"""
+    khateb = current_khateb()
+    if not khateb:
+        logout_session()
+        return redirect(url_for('login'))
+
+    khateb.pending_topic = None
+    khateb.pending_topic_mode = None
     khateb.pending_topic_approved = 0
     db.session.add(khateb)
     db.session.commit()
 
-    if mode == TOPIC_MODE_AFTER_CURRENT:
-        flash('تم إرسال طلب الموضوع القادم للمدير — سيُفعَّل تلقائياً بعد إنهاء جميع المساجد', 'success')
-    else:
-        flash('تم إرسال طلب الموضوع الجديد للمدير — وسيُعتمد مع إعادة تعيين جميع المساجد', 'success')
+    flash('تم إلغاء موضوع الخطبة القادمة المجدول', 'success')
     return redirect(url_for('my'))
 
 
