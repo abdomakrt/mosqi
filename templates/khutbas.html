@@ -338,11 +338,23 @@ function loadPendingAssignmentsForKhutbas() {
         .then(data => {
             if (!data.assignments) return;
             data.assignments.forEach(a => {
-                if (a.status === 'pending') {
-                    const row = document.getElementById(`khatebRow${a.khateb_id}`);
-                    if (row) {
-                        const cell = row.querySelector('td:last-child .btn-group');
-                        if (cell) {
+                if (a.status === 'cancelled') return;
+                const row = document.getElementById(`khatebRow${a.khateb_id}`);
+                if (row) {
+                    const cell = row.querySelector('td:last-child .btn-group');
+                    if (cell) {
+                        // زر تسجيل أداء الخطبة (يحدّث المساجد المزارة للخطيب)
+                        const doneBtn = document.createElement('button');
+                        doneBtn.className = 'btn btn-sm btn-outline-success';
+                        doneBtn.title = 'تسجيل أداء الخطبة';
+                        doneBtn.innerHTML = '<i class="fas fa-check-double"></i>';
+                        doneBtn.onclick = () => {
+                            if (!confirm('تسجيل أن الخطيب أدي هذه الخطبة؟')) return;
+                            fetch(`/assignment/${a.id}/complete`, { method: 'POST' })
+                                .then(r => r.json()).then(d => { alert(d.message); location.reload(); });
+                        };
+
+                        if (a.status === 'pending') {
                             // إضافة زر التأكيد والاعتذار أمام الخطيب
                             const confirmBtn = document.createElement('button');
                             confirmBtn.className = 'btn btn-sm btn-outline-success';
@@ -368,6 +380,8 @@ function loadPendingAssignmentsForKhutbas() {
                             cell.prepend(apologizeBtn);
                             cell.prepend(confirmBtn);
                         }
+
+                        cell.prepend(doneBtn);
                     }
                 }
             });

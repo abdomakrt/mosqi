@@ -35,6 +35,8 @@ MIGRATIONS = {
         ('access_code_hash', 'TEXT'),
         ('is_active', 'INTEGER DEFAULT 1'),
         ('pending_topic', 'VARCHAR(300)'),
+        ('pending_topic_mode', 'VARCHAR(20)'),
+        ('pending_topic_approved', 'INTEGER DEFAULT 0'),
     ],
 }
 

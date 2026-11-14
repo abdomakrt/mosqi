@@ -118,6 +118,42 @@ def whatsapp_link(phone, name, message=None):
 
 ADMIN_PASSWORD_KEY = 'admin_password_hash'
 
+# أوضاع طلب الموضوع الجديد من الخطيب
+TOPIC_MODE_RESET = 'reset'              # إعادة التعيين على جميع المساجد من جديد
+TOPIC_MODE_AFTER_CURRENT = 'after_current'  # الموضوع القادم بعد إنهاء المساجد الحالية
+
+
+def activate_new_topic(khateb, topic):
+    """تفعيل موضوع جديد للخطيب: تعيين الموضوع + تصفير المساجد المزارة"""
+    khateb.current_topic = topic
+    khateb.pending_topic = None
+    khateb.pending_topic_mode = None
+    khateb.pending_topic_approved = 0
+    khateb.mosques_visited = json.dumps([])
+    khateb.last_topic_change = datetime.utcnow()
+    db.session.add(khateb)
+    return khateb
+
+
+def maybe_activate_queued_topic(khateb):
+    """إذا كان هناك موضوع معتمد مجدول (بعد_current) وتم إنهاء جميع المساجد => يُفعَّل تلقائياً"""
+    if not khateb.pending_topic:
+        return False
+    if khateb.pending_topic_mode != TOPIC_MODE_AFTER_CURRENT:
+        return False
+    if not khateb.pending_topic_approved:
+        return False
+
+    total_mosques = Mosque.query.count()
+    if not total_mosques:
+        return False
+    if len(khateb.get_visited_mosques_list()) < total_mosques:
+        return False
+
+    activate_new_topic(khateb, khateb.pending_topic)
+    db.session.commit()
+    return True
+
 
 def verify_admin_password(password):
     """التحقق من كلمة مرور المدير.
@@ -291,6 +327,8 @@ class Khateb(db.Model):
     access_code_hash = db.Column(db.String(255))  # رمز الدخول المشفّر (6 أرقام)
     is_active = db.Column(db.Integer, default=1)  # 1 = مفعّل، 0 = موقوف
     pending_topic = db.Column(db.String(300), nullable=True)  # موضوع مقترح بانتظار اعتماد المدير
+    pending_topic_mode = db.Column(db.String(20), nullable=True)  # reset = من جديد / after_current = بعد إنهاء المساجد
+    pending_topic_approved = db.Column(db.Integer, default=0)  # 1 = معتمد ومجدول للتفعيل بعد إنهاء المساجد
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     assignments = db.relationship('Assignment', backref='khateb', lazy=True)
 
@@ -1847,38 +1885,6 @@ def my():
     )
 
 
-@app.route('/my/assignment/<int:assignment_id>/complete', methods=['POST'])
-@login_required
-def my_complete_assignment(assignment_id):
-    """تأكيد أداء الخطبة: completed + إضافة المسجد لقائمة المساجد المزارة (مرة واحدة فقط)"""
-    khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
-
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment or assignment.khateb_id != khateb.id:
-        flash('التعيين غير موجود', 'error')
-        return redirect(url_for('my'))
-
-    if assignment.status == 'cancelled':
-        flash('هذا التعيين ملغى بالفعل', 'error')
-        return redirect(url_for('my'))
-
-    assignment.status = 'completed'
-    db.session.add(assignment)
-
-    visited = khateb.get_visited_mosques_list()
-    if assignment.mosque_id not in visited:
-        visited.append(assignment.mosque_id)
-        khateb.mosques_visited = json.dumps(visited)
-        db.session.add(khateb)
-
-    db.session.commit()
-    flash('تم تسجيل أداء الخطبة، بارك الله فيك', 'success')
-    return redirect(url_for('my'))
-
-
 @app.route('/my/assignment/<int:assignment_id>/apologize', methods=['POST'])
 @login_required
 def my_apologize_assignment(assignment_id):
@@ -1912,7 +1918,10 @@ def my_apologize_assignment(assignment_id):
 @app.route('/my/topic', methods=['POST'])
 @login_required
 def my_submit_topic():
-    """إرسال موضوع جديد من الخطيب (يُحفظ كـ pending_topic بانتظار اعتماد المدير)"""
+    """طلب موضوع جديد من الخطيب مع تحديد طريقة التطبيق:
+       - reset: إعادة التعيين على جميع المساجد من جديد
+       - after_current: الموضوع القادم بعد إنهاء المساجد الحالية
+    """
     khateb = current_khateb()
     if not khateb:
         logout_session()
@@ -1923,10 +1932,20 @@ def my_submit_topic():
         flash('يرجى كتابة موضوع الخطبة الجديد', 'error')
         return redirect(url_for('my'))
 
+    mode = request.form.get('mode', TOPIC_MODE_RESET)
+    if mode not in (TOPIC_MODE_RESET, TOPIC_MODE_AFTER_CURRENT):
+        mode = TOPIC_MODE_RESET
+
     khateb.pending_topic = topic[:300]
+    khateb.pending_topic_mode = mode
+    khateb.pending_topic_approved = 0
     db.session.add(khateb)
     db.session.commit()
-    flash('تم إرسال الموضوع الجديد إلى المدير للاعتماد', 'success')
+
+    if mode == TOPIC_MODE_AFTER_CURRENT:
+        flash('تم إرسال طلب الموضوع القادم للمدير — سيُفعَّل تلقائياً بعد إنهاء جميع المساجد', 'success')
+    else:
+        flash('تم إرسال طلب الموضوع الجديد للمدير — وسيُعتمد مع إعادة تعيين جميع المساجد', 'success')
     return redirect(url_for('my'))
 
 
@@ -1956,10 +1975,46 @@ def khateb_regenerate_code(khateb_id):
     })
 
 
+@app.route('/assignment/<int:assignment_id>/complete', methods=['POST'])
+@admin_required
+def api_complete_assignment(assignment_id):
+    """تسجيل أداء الخطبة (من قبل المدير بعد انتهاء الجمعة): completed + إضافة المسجد للمساجد المزارة"""
+    assignment = Assignment.query.get(assignment_id)
+    if not assignment:
+        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
+
+    if assignment.status == 'cancelled':
+        return jsonify({'success': False, 'message': 'هذا التعيين ملغى'}), 400
+
+    assignment.status = 'completed'
+    db.session.add(assignment)
+
+    khateb = Khateb.query.get(assignment.khateb_id)
+    message = 'تم تسجيل أداء الخطبة'
+    if khateb:
+        visited = khateb.get_visited_mosques_list()
+        if assignment.mosque_id not in visited:
+            visited.append(assignment.mosque_id)
+            khateb.mosques_visited = json.dumps(visited)
+            db.session.add(khateb)
+
+    db.session.commit()
+
+    # تفعيل الموضوع المجدول تلقائياً إذا أنهى الخطيب جميع المساجد
+    if khateb and maybe_activate_queued_topic(khateb):
+        message += ' — وتم تفعيل موضوعك الجديد: %s' % khateb.current_topic
+
+    return jsonify({'success': True, 'message': message})
+
+
 @app.route('/khateb/<int:khateb_id>/approve_topic', methods=['POST'])
 @admin_required
 def khateb_approve_topic(khateb_id):
-    """اعتماد الموضوع الجديد المقترح من الخطيب وتصفير المساجد المزارة"""
+    """اعتماد الموضوع الجديد المقترح من الخطيب
+
+    - وضع 'reset': يُفعَّل فوراً وتُصفّر المساجد المزارة
+    - وضع 'after_current': يُجدول للتفعيل تلقائياً بعد إنهاء الخطيب جميع المساجد
+    """
     khateb = Khateb.query.get(khateb_id)
     if not khateb:
         flash('الخطيب غير موجود', 'error')
@@ -1969,14 +2024,59 @@ def khateb_approve_topic(khateb_id):
         flash('لا يوجد موضوع مقترح لهذا الخطيب', 'error')
         return redirect(url_for('settings'))
 
-    khateb.current_topic = khateb.pending_topic
+    topic = khateb.pending_topic
+    mode = khateb.pending_topic_mode or TOPIC_MODE_RESET
+
+    if mode == TOPIC_MODE_AFTER_CURRENT:
+        # يُجدول: يبقى الموضوع الحالي حتى ينتهي الخطيب من المساجد
+        khateb.pending_topic_approved = 1
+        db.session.add(khateb)
+        db.session.commit()
+        flash('تم اعتماد موضوع %s كموضوع قادم للخطيب %s — سيُفعَّل تلقائياً بعد إنهاء جميع المساجد'
+              % (topic, khateb.name), 'success')
+        return redirect(url_for('settings'))
+
+    activate_new_topic(khateb, topic)
+    db.session.commit()
+    flash('تم اعتماد الموضوع الجديد لـ %s وتصفير قائمة المساجد المزارة' % khateb.name, 'success')
+    return redirect(url_for('settings'))
+
+
+@app.route('/khateb/<int:khateb_id>/activate_topic', methods=['POST'])
+@admin_required
+def khateb_activate_topic(khateb_id):
+    """تفعيل موضوع الخطيب فوراً (بدون انتظار إنهاء المساجد)"""
+    khateb = Khateb.query.get(khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'error')
+        return redirect(url_for('settings'))
+
+    if not khateb.pending_topic:
+        flash('لا يوجد موضوع مقترح لهذا الخطيب', 'error')
+        return redirect(url_for('settings'))
+
+    topic = khateb.pending_topic
+    activate_new_topic(khateb, topic)
+    db.session.commit()
+    flash('تم تفعيل الموضوع %s للخطيب %s وتصفير المساجد المزارة' % (topic, khateb.name), 'success')
+    return redirect(url_for('settings'))
+
+
+@app.route('/khateb/<int:khateb_id>/reject_topic', methods=['POST'])
+@admin_required
+def khateb_reject_topic(khateb_id):
+    """رفض Topic المقترح وإلغاؤه"""
+    khateb = Khateb.query.get(khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'error')
+        return redirect(url_for('settings'))
+
     khateb.pending_topic = None
-    khateb.mosques_visited = json.dumps([])
-    khateb.last_topic_change = datetime.utcnow()
+    khateb.pending_topic_mode = None
+    khateb.pending_topic_approved = 0
     db.session.add(khateb)
     db.session.commit()
-
-    flash('تم اعتماد الموضوع الجديد لـ %s وتصفير قائمة المساجد المزارة' % khateb.name, 'success')
+    flash('تم إلغاء الموضوع المقترح للخطيب %s' % khateb.name, 'success')
     return redirect(url_for('settings'))
 
 
