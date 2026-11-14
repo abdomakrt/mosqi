@@ -116,6 +116,41 @@ def whatsapp_link(phone, name, message=None):
     return 'https://wa.me/%s?text=%s' % (number, quote(message))
 
 
+ADMIN_PASSWORD_KEY = 'admin_password_hash'
+
+
+def verify_admin_password(password):
+    """التحقق من كلمة مرور المدير.
+
+    - إذا كانت هناك كلمة مرور مخزّنة في قاعدة البيانات (غيّرها من الإعدادات) فهي المعتمدة
+    - وإلا تُستخدم كلمة المرور من متغير البيئة ADMIN_PASSWORD
+    """
+    if not password:
+        return False
+
+    stored = None
+    try:
+        stored = AppSetting.get(ADMIN_PASSWORD_KEY)
+    except Exception:
+        stored = None
+
+    if stored:
+        try:
+            return check_password_hash(stored, password)
+        except Exception:
+            return False
+
+    return password == ADMIN_PASSWORD
+
+
+def admin_password_source():
+    """مصدر كلمة مرور المدير الحالية: 'database' أو 'environment'"""
+    try:
+        return 'database' if AppSetting.get(ADMIN_PASSWORD_KEY) else 'environment'
+    except Exception:
+        return 'environment'
+
+
 # ---------- إدارة الجلسة ----------
 
 def is_logged_in():
@@ -323,6 +358,43 @@ class WeeklySchedule(db.Model):
             'week_date': self.week_date.strftime('%Y-%m-%d'),
             'khateb_count': len(json.loads(self.khateb_ids or '[]'))
         }
+
+
+class AppSetting(db.Model):
+    """إعدادات التطبيق (مفتاح / قيمة) - مثل كلمة مرور المدير"""
+    __tablename__ = 'app_setting'
+
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<AppSetting {self.key}>'
+
+    @staticmethod
+    def get(key, default=None):
+        row = AppSetting.query.get(key)
+        return row.value if row is not None else default
+
+    @staticmethod
+    def set(key, value):
+        row = AppSetting.query.get(key)
+        if row is None:
+            row = AppSetting(key=key)
+        row.value = value
+        row.updated_at = datetime.utcnow()
+        db.session.add(row)
+        db.session.commit()
+        return row
+
+    @staticmethod
+    def delete(key):
+        row = AppSetting.query.get(key)
+        if row is not None:
+            db.session.delete(row)
+            db.session.commit()
+            return True
+        return False
 
 
 # ============================================
@@ -593,7 +665,9 @@ def mosques():
     mosques = Mosque.query.all()
     # Convert SQLAlchemy models to dictionaries for JSON serialization
     mosque_list = [mosque.to_dict() for mosque in mosques]
-    return render_template('mosques.html', mosques=mosque_list)
+    # إجمالي الطاقة الاستيعابية (تجاهل المساجد بدون سعة مسجلة)
+    total_capacity = sum(m.capacity or 0 for m in mosques)
+    return render_template('mosques.html', mosques=mosque_list, total_capacity=total_capacity)
 
 
 @app.route('/mosque/add', methods=['POST'])
@@ -1086,6 +1160,46 @@ def settings_backup_restore_local(name):
     return redirect(url_for('settings'))
 
 
+@app.route('/settings/admin/password', methods=['POST'])
+@admin_required
+def settings_change_admin_password():
+    """تغيير كلمة مرور المدير"""
+    new_password = request.form.get('new_password', '') or ''
+    confirm_password = request.form.get('confirm_password', '') or ''
+    current_password = request.form.get('current_password', '') or ''
+
+    if len(new_password) < 6:
+        flash('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل', 'error')
+        return redirect(url_for('settings'))
+
+    if new_password != confirm_password:
+        flash('كلمة المرور الجديدة وتأكيدها غير متطابقين', 'error')
+        return redirect(url_for('settings'))
+
+    # التحقق من كلمة المرور الحالية (إ 추가ً إلى تسجيل الدخول الحالي)
+    if current_password and not verify_admin_password(current_password):
+        flash('كلمة المرور الحالية غير صحيحة', 'error')
+        return redirect(url_for('settings'))
+
+    AppSetting.set(ADMIN_PASSWORD_KEY, generate_password_hash(new_password))
+    flash('تم تغيير كلمة مرور المدير بنجاح', 'success')
+    return redirect(url_for('settings'))
+
+
+@app.route('/settings/admin/password/reset', methods=['POST'])
+@admin_required
+def settings_reset_admin_password():
+    """الرجوع إلى كلمة المرور من متغير البيئة ADMIN_PASSWORD"""
+    current_password = request.form.get('current_password', '') or ''
+    if not verify_admin_password(current_password):
+        flash('كلمة المرور الحالية غير صحيحة', 'error')
+        return redirect(url_for('settings'))
+
+    AppSetting.delete(ADMIN_PASSWORD_KEY)
+    flash('تمت إعادة كلمة مرور المدير إلى القيمة الأساسية (متغير البيئة ADMIN_PASSWORD)', 'success')
+    return redirect(url_for('settings'))
+
+
 @app.route('/settings')
 @admin_required
 def settings():
@@ -1118,7 +1232,8 @@ def settings():
                          schedules=schedules,
                          week_dates=week_dates,
                          total_mosques=total_mosques,
-                         backups=list_local_backups())
+                         backups=list_local_backups(),
+                         admin_password_source=admin_password_source())
 
 
 @app.route('/settings/reset/distributions', methods=['POST'])
@@ -1367,7 +1482,7 @@ def api_assignment_details(assignment_id):
     
     details = assignment.to_dict()
     details.update({
-        'created_at': assignment.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        'created_at': assignment.created_at.strftime('%Y-%m-%d %H:%M:%S') if assignment.created_at else '-'
     })
     
     return jsonify(details)
@@ -1640,7 +1755,7 @@ def login():
 
         if role == 'admin':
             password = request.form.get('password', '') or ''
-            if password and password == ADMIN_PASSWORD:
+            if password and verify_admin_password(password):
                 login_admin()
                 flash('تم تسجيل الدخول كمدير بنجاح', 'success')
                 return redirect(url_for('settings'))

@@ -33,7 +33,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <i class="fas fa-users fa-2x text-success mb-2"></i>
-                <h4>{{ mosques|sum(attribute='capacity') or 0 }}</h4>
+                <h4>{{ total_capacity or 0 }}</h4>
                 <p class="text-muted">إجمالي الطاقة الاستيعابية</p>
             </div>
         </div>
@@ -93,7 +93,7 @@
                                     <td>
                                         <span class="badge bg-info">{{ mosque.capacity or 0 }} مصلي</span>
                                     </td>
-                                    <td>{{ mosque.created_at.strftime('%Y-%m-%d') }}</td>
+                                    <td>{{ mosque.created_at.strftime('%Y-%m-%d') if mosque.created_at else '-' }}</td>
                                     <td>
                                         <div class="btn-group" role="group">
                                             <button class="btn btn-sm btn-outline-primary" 

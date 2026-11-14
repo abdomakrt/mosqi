@@ -51,6 +51,66 @@
     </div>
 </div>
 
+<!-- كلمة مرور المدير -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user-shield"></i> كلمة مرور المدير</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('settings_change_admin_password') }}"
+                      onsubmit="return confirm('هل تريد تغيير كلمة مرور المدير؟');">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="currentPass">كلمة المرور الحالية</label>
+                            <input type="password" class="form-control" id="currentPass" name="current_password"
+                                   placeholder="للتأكد فقط" autocomplete="current-password">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="newPass">كلمة المرور الجديدة</label>
+                            <input type="password" class="form-control" id="newPass" name="new_password" minlength="6"
+                                   placeholder="6 أحرف على الأقل" autocomplete="new-password">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="confirmPass">تأكيد كلمة المرور</label>
+                            <input type="password" class="form-control" id="confirmPass" name="confirm_password" minlength="6"
+                                   placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-key"></i> تغيير كلمة المرور
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <hr class="my-3">
+                <div class="d-flex justify-content-between align-items-center flex-wrap">
+                    <small class="text-muted">
+                        {% if admin_password_source == 'database' %}
+                            <i class="fas fa-circle text-success"></i>
+                            كلمة المرور الحالية مُعدَّلة ومحفوظة مشفّرة في قاعدة البيانات.
+                        {% else %}
+                            <i class="fas fa-circle text-warning"></i>
+                            كلمة المرور الحالية هي القيمة الافتراضية من متغير البيئة
+                            <code>ADMIN_PASSWORD</code> — يُنصح بتغييرها.
+                        {% endif %}
+                    </small>
+                    <form method="POST" action="{{ url_for('settings_reset_admin_password') }}"
+                          onsubmit="return confirm('الرجوع إلى كلمة المرور الأساسية (ADMIN_PASSWORD)؟');">
+                        <input type="password" class="form-control form-control-sm d-inline-block"
+                               style="width: 180px" name="current_password" placeholder="كلمة المرور الحالية">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-undo"></i> إعادة للكلمة الأساسية
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- النسخ الاحتياطي والاستعادة -->
 <div class="row mb-4">
     <div class="col-12">

@@ -19,6 +19,16 @@ import sqlite3
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'instance', 'khutba_distribution.db')
 
+# جداول يُنشأ إن لم تكن موجودة (إضافة فقط - لا حذف ولا إعادة تسمية)
+CREATE_TABLES = [
+    ("""CREATE TABLE IF NOT EXISTS app_setting (
+            key TEXT NOT NULL,
+            value TEXT,
+            updated_at DATETIME,
+            PRIMARY KEY (key)
+        )""", 'app_setting'),
+]
+
 # الأعمدة المضافة: (اسم الجدول، [(اسم العمود, تعريف العمود), ...])
 MIGRATIONS = {
     'khateb': [
@@ -53,6 +63,14 @@ def run_migrations(db_path=DB_PATH, verbose=True):
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()
+
+        # إنشاء الجداول الناقصة (إضافة فقط)
+        for create_sql, table_name in CREATE_TABLES:
+            if not _table_exists(cursor, table_name):
+                cursor.execute(create_sql)
+                applied.append('%s (table)' % table_name)
+                if verbose:
+                    print("[migrate] تم إنشاء الجدول %s" % table_name)
 
         for table_name, columns in MIGRATIONS.items():
             if not _table_exists(cursor, table_name):
