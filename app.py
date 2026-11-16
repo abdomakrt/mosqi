@@ -345,6 +345,16 @@ def api_confirm_assignment(assignment_id):
     if not assignment:
         return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
 
+    # التحقق من عدم وجود تعيين نشط آخر لنفس الخطيب في نفس الجمعة
+    dup = Assignment.query.filter(
+        Assignment.khateb_id == assignment.khateb_id,
+        Assignment.week_date == assignment.week_date,
+        Assignment.status != 'cancelled',
+        Assignment.id != assignment.id
+    ).first()
+    if dup:
+        return jsonify({'success': False, 'message': 'الخطيب لديه تعيين نشط آخر في نفس هذا الأسبوع بالفعل'}), 400
+
     # Mark as confirmed and update visited mosques for khateb
     assignment.status = 'confirmed'
     db.session.add(assignment)
@@ -433,6 +443,21 @@ class Khateb(db.Model):
 
 class Assignment(db.Model):
     """نموذج التعيين الأسبوعي"""
+    __table_args__ = (
+        db.Index(
+            'idx_assignment_khateb_active_week',
+            'khateb_id', 'week_date',
+            unique=True,
+            sqlite_where=db.text("status != 'cancelled'")
+        ),
+        db.Index(
+            'idx_assignment_mosque_active_week',
+            'mosque_id', 'week_date',
+            unique=True,
+            sqlite_where=db.text("status != 'cancelled'")
+        ),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     khateb_id = db.Column(db.Integer, db.ForeignKey('khateb.id'), nullable=False)
     mosque_id = db.Column(db.Integer, db.ForeignKey('mosque.id'), nullable=False)
@@ -643,23 +668,24 @@ class DistributionEngine:
                 )
                 assignments.append(assignment)
         
-        # إذا لم تُوزع جميع المساجد، استخدم خطباء عاديين
+        # إذا لم تُوزع جميع المساجد، وزّع الخطباء الذين لم يُعيّنوا بعد
         remaining_mosques = [m for m in mosques if m.id not in used_mosques]
-        
-        if remaining_mosques and len(available_khutbas) > len(assignments):
-            for i, mosque in enumerate(remaining_mosques):
-                if i < len(available_khutbas) - len(assignments):
-                    khateb = available_khutbas[i]
-                    forbidden = set(khateb.get_forbidden_mosques_list())
-                    if mosque.id in forbidden:
-                        continue
-                    assignment = Assignment(
-                        khateb_id=khateb.id,
-                        mosque_id=mosque.id,
-                        week_date=target_friday,
-                        khutba_topic=khateb.get_effective_topic()
-                    )
-                    assignments.append(assignment)
+        assigned_khatebs = set(a.khateb_id for a in assignments)
+        unassigned_khatebs = [k for k in available_khutbas if k.id not in assigned_khatebs]
+
+        if remaining_mosques and unassigned_khatebs:
+            for mosque, khateb in zip(remaining_mosques, unassigned_khatebs):
+                forbidden = set(khateb.get_forbidden_mosques_list())
+                if mosque.id in forbidden:
+                    continue
+                assignment = Assignment(
+                    khateb_id=khateb.id,
+                    mosque_id=mosque.id,
+                    week_date=target_friday,
+                    khutba_topic=khateb.get_effective_topic()
+                )
+                assignments.append(assignment)
+                used_mosques.add(mosque.id)
 
         # حفظ التعيينات
         db.session.add_all(assignments)
@@ -1451,15 +1477,43 @@ def assignment_update(assignment_id):
     khutba_topic = request.form.get('khutba_topic')
     status = request.form.get('status')
     
+    target_khateb_id = khateb_id if khateb_id is not None else assignment.khateb_id
+    target_mosque_id = mosque_id if mosque_id is not None else assignment.mosque_id
+    target_week_date = assignment.week_date
+    if week_date_str:
+        try:
+            target_week_date = datetime.strptime(week_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    target_status = status if status is not None else assignment.status
+
+    if target_status != 'cancelled':
+        # التحقق من عدم تعيين نفس الخطيب في أكثر من مسجد في نفس الجمعة
+        dup_khateb = Assignment.query.filter(
+            Assignment.khateb_id == target_khateb_id,
+            Assignment.week_date == target_week_date,
+            Assignment.status != 'cancelled',
+            Assignment.id != assignment.id
+        ).first()
+        if dup_khateb:
+            return jsonify({'success': False, 'message': 'لا يمكن توزيع الخطيب على أكثر من مسجد في نفس الجمعة'}), 400
+
+        # التحقق من عدم تعيين أكثر من خطيب لنفس المسجد في نفس الجمعة
+        dup_mosque = Assignment.query.filter(
+            Assignment.mosque_id == target_mosque_id,
+            Assignment.week_date == target_week_date,
+            Assignment.status != 'cancelled',
+            Assignment.id != assignment.id
+        ).first()
+        if dup_mosque:
+            return jsonify({'success': False, 'message': 'هذا المسجد مخصص له خطيب آخر بالفعل في نفس الجمعة'}), 400
+
     if khateb_id:
         assignment.khateb_id = khateb_id
     if mosque_id:
         assignment.mosque_id = mosque_id
     if week_date_str:
-        try:
-            assignment.week_date = datetime.strptime(week_date_str, '%Y-%m-%d').date()
-        except ValueError:
-            pass
+        assignment.week_date = target_week_date
     if khutba_topic is not None:
         assignment.khutba_topic = khutba_topic
     if status:
@@ -1659,9 +1713,15 @@ def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
     # بناء قائمة المرشحين (نتجاهل rest_weeks كما طلبت)
     candidates = []
     for k in Khateb.query.all():
+        if k.is_active not in (1, True):
+            continue
+        if not k.has_profile():
+            continue
         if k.id == original_khateb_id:
             continue
         if k.id in assigned_khateb_ids:
+            continue
+        if target_mosque in k.get_forbidden_mosques_list():
             continue
         if k.current_topic == original_topic:
             continue
@@ -1695,35 +1755,46 @@ def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
                 db.session.add(replacement_khateb)
 
     # الآن محاولة إلحاق الخطيب الأصلي بمسجد آخر إن وُجد مسجد غير مخصص
+    # ⚠️ لا يُلحق إذا كان لديه تعيين فعّال آخر في نفس الأسبوع (لا يمكن خطبتان في جمعة واحدة)
     attached_assignment_id = None
     if attach_original:
-        all_mosques = [m.id for m in Mosque.query.all()]
-        assigned_mosques = set(a.mosque_id for a in Assignment.query.filter(Assignment.week_date==target_week, Assignment.status!='cancelled').all())
-        unassigned = [m for m in all_mosques if m not in assigned_mosques]
+        has_active = Assignment.query.filter(
+            Assignment.khateb_id == original_khateb_id,
+            Assignment.week_date == target_week,
+            Assignment.status != 'cancelled',
+            Assignment.id != assignment.id
+        ).first()
+        if has_active:
+            # لديه تعيين آخر فعّال — لا نلحقه بمسجد ثانٍ
+            pass
+        else:
+            all_mosques = [m.id for m in Mosque.query.all()]
+            assigned_mosques = set(a.mosque_id for a in Assignment.query.filter(Assignment.week_date==target_week, Assignment.status!='cancelled').all())
+            unassigned = [m for m in all_mosques if m not in assigned_mosques]
 
-        if unassigned:
-            # اختر مسجد مفضّل لم يزره الخطيب الأصلي
-            orig_khateb = Khateb.query.get(original_khateb_id)
-            preferred = [m for m in unassigned if m not in orig_khateb.get_visited_mosques_list()]
-            chosen = preferred[0] if preferred else unassigned[0]
-            new_attach = Assignment(
-                khateb_id=original_khateb_id,
-                mosque_id=chosen,
-                week_date=target_week,
-                khutba_topic=orig_khateb.current_topic,
-                status='pending'
-            )
-            db.session.add(new_attach)
-            db.session.flush()
-            attached_assignment_id = new_attach.id
+            if unassigned:
+                # اختر مسجد مفضّل لم يزره الخطيب الأصلي
+                orig_khateb = Khateb.query.get(original_khateb_id)
+                preferred = [m for m in unassigned if m not in orig_khateb.get_visited_mosques_list()]
+                chosen = preferred[0] if preferred else unassigned[0]
+                new_attach = Assignment(
+                    khateb_id=original_khateb_id,
+                    mosque_id=chosen,
+                    week_date=target_week,
+                    khutba_topic=orig_khateb.current_topic,
+                    status='pending'
+                )
+                db.session.add(new_attach)
+                db.session.flush()
+                attached_assignment_id = new_attach.id
 
-            # تحديث زيارات الخطيب الأصلي
-            if update_visited:
-                visited = orig_khateb.get_visited_mosques_list()
-                if chosen not in visited:
-                    visited.append(chosen)
-                    orig_khateb.mosques_visited = json.dumps(visited)
-                    db.session.add(orig_khateb)
+                # تحديث زيارات الخطيب الأصلي
+                if update_visited:
+                    visited = orig_khateb.get_visited_mosques_list()
+                    if chosen not in visited:
+                        visited.append(chosen)
+                        orig_khateb.mosques_visited = json.dumps(visited)
+                        db.session.add(orig_khateb)
 
     return new_assignment_id, attached_assignment_id
 
@@ -2175,6 +2246,17 @@ def my_undo_apologize(assignment_id):
 
     if assignment.status != 'cancelled':
         flash('هذا التعيين غير ملغى', 'error')
+        return redirect(url_for('my'))
+
+    # ⚠️ تحقق: لا يمكن خطبتان في جمعة واحدة
+    has_active = Assignment.query.filter(
+        Assignment.khateb_id == khateb.id,
+        Assignment.week_date == assignment.week_date,
+        Assignment.status != 'cancelled',
+        Assignment.id != assignment.id
+    ).first()
+    if has_active:
+        flash('لديك تعيين آخر فعّال في نفس الأسبوع — لا يمكن خطبتان في جمعة واحدة', 'error')
         return redirect(url_for('my'))
 
     # إلغاء التعيين البديل (إن وُجد) لأنه لم تعد هناك حاجة إليه بعد التراجع

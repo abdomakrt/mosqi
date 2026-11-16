@@ -115,6 +115,53 @@ def run_migrations(db_path=DB_PATH, verbose=True):
             if 'mosques_visited' in existing_khateb_cols:
                 cursor.execute("UPDATE khateb SET mosques_visited = '[]' WHERE mosques_visited IS NULL")
 
+        if _table_exists(cursor, 'assignment'):
+            # معالجة أي تعيينات مكررة نشطة لنفس الخطيب في نفس الجمعة (إلغاء المكرر والإبقاء على التعيين الأول)
+            cursor.execute("""
+                UPDATE assignment 
+                SET status = 'cancelled' 
+                WHERE id IN (
+                    SELECT a.id FROM assignment a
+                    WHERE a.status != 'cancelled'
+                    AND EXISTS (
+                        SELECT 1 FROM assignment b
+                        WHERE b.khateb_id = a.khateb_id
+                        AND b.week_date = a.week_date
+                        AND b.status != 'cancelled'
+                        AND b.id < a.id
+                    )
+                )
+            """)
+
+            # معالجة أي تعيينات مكررة نشطة لنفس المسجد في نفس الجمعة
+            cursor.execute("""
+                UPDATE assignment 
+                SET status = 'cancelled' 
+                WHERE id IN (
+                    SELECT a.id FROM assignment a
+                    WHERE a.status != 'cancelled'
+                    AND EXISTS (
+                        SELECT 1 FROM assignment b
+                        WHERE b.mosque_id = a.mosque_id
+                        AND b.week_date = a.week_date
+                        AND b.status != 'cancelled'
+                        AND b.id < a.id
+                    )
+                )
+            """)
+
+            # إنشاء فهارس فريدة لمنع تكرار توزيع الخطيب أو المسجد في نفس الجمعة مستقبلاً
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_assignment_khateb_active_week 
+                ON assignment (khateb_id, week_date) 
+                WHERE status != 'cancelled'
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_assignment_mosque_active_week 
+                ON assignment (mosque_id, week_date) 
+                WHERE status != 'cancelled'
+            """)
+
         conn.commit()
     finally:
         conn.close()
