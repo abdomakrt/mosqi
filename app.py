@@ -1866,8 +1866,12 @@ def login():
             return render_template('login.html', role='admin')
 
         # دخول الخطيب: رقم الجوال + كلمة المرور
+        # ملاحظة: حقل كلمة المرور للخطيب اسمه khateb_password (مختلف عن password الخاص بالمدير)
+        # حتى لا يقرأ الخادم قيمة حقل المدير الفارغ عند إرسال النموذج من المتصفح.
         phone = (request.form.get('phone', '') or '').strip()
-        password = (request.form.get('password', '') or '').strip()
+        password = (request.form.get('khateb_password', '') or '').strip()
+        if not password:
+            password = (request.form.get('password', '') or '').strip()
         normalized = normalize_phone(phone)
 
         khateb = None
