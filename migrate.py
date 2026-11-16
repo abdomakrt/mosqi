@@ -33,6 +33,7 @@ CREATE_TABLES = [
 MIGRATIONS = {
     'khateb': [
         ('password_hash', 'TEXT'),
+        ('profile_complete', 'INTEGER'),
         ('is_active', 'INTEGER DEFAULT 0'),
         ('pending_topic', 'VARCHAR(300)'),
         ('pending_topic_mode', 'VARCHAR(20)'),
@@ -98,6 +99,10 @@ def run_migrations(db_path=DB_PATH, verbose=True):
         if _table_exists(cursor, 'khateb'):
             if 'is_active' in _existing_columns(cursor, 'khateb'):
                 cursor.execute("UPDATE khateb SET is_active = 1 WHERE is_active IS NULL")
+            # الخطباء المسجلون قبل هذا التحديث كانت بياناتهم جاهزة من المدير،
+            # أما المنضمون الجدد فيُسجّلون بقيمة 0 صراحةً حتى يكملوا ملفهم.
+            if 'profile_complete' in _existing_columns(cursor, 'khateb'):
+                cursor.execute("UPDATE khateb SET profile_complete = 1 WHERE profile_complete IS NULL")
             if 'forbidden_mosques' in _existing_columns(cursor, 'khateb'):
                 cursor.execute("UPDATE khateb SET forbidden_mosques = '[]' WHERE forbidden_mosques IS NULL")
             if 'mosques_visited' in _existing_columns(cursor, 'khateb'):

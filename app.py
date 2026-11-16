@@ -14,6 +14,7 @@ from sqlalchemy import inspect as sa_inspect
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import sys
@@ -373,6 +374,8 @@ class Khateb(db.Model):
     alternate_offset = db.Column(db.Integer, default=0)
     forbidden_mosques = db.Column(db.Text, default='[]')  # JSON array of mosque IDs
     password_hash = db.Column(db.String(255))  # كلمة مرور الخطيب المشفّرة
+    # بلا default عمداً: الأسطر القديمة تبقى NULL (ملفهم جاهز) والجديد يُضبط على 0 صراحةً
+    profile_complete = db.Column(db.Integer)
     is_active = db.Column(db.Integer, default=0)  # 1 = مفعّل، 0 = في انتظار موافقة المدير
     pending_topic = db.Column(db.String(300), nullable=True)  # موضوع مقترح بانتظار اعتماد المدير
     pending_topic_mode = db.Column(db.String(20), nullable=True)  # reset = من جديد / after_current = بعد إنهاء المساجد
@@ -400,6 +403,16 @@ class Khateb(db.Model):
     def get_visited_mosques_list(self):
         """إرجاع قائمة المساجد المزارة"""
         return json.loads(self.mosques_visited or '[]')
+
+    def has_profile(self):
+        """هل أكمل الخطيب ملفه؟ (موضوع الخطبة + المساجد المستثناة + نظام التوفر)
+
+        الخطباء المسجلون قبل هذه الميزة ملفهم جاهز تلقائياً
+        (قيمة profile_complete = NULL تُعامل كمكتمل).
+        """
+        if self.profile_complete is None:
+            return True
+        return bool(self.profile_complete)
 
     def is_seasonal_active(self):
         """هل يوجد موضوع موسمي ساري الآن؟"""
@@ -522,7 +535,12 @@ class DistributionEngine:
         return friday_date + timedelta(days=7)
 
     def get_available_khutbas(self, target_friday=None):
-        """الحصول على قائمة الخطباء المتاحين (غير في راحة)"""
+        """الحصول على قائمة الخطباء المتاحين للتوزيع
+
+        يُستبعد:
+        - الخطباء غير المعتمدين من المدير (is_active = 0)
+        - الخطباء الذين لم يكملوا ملفهم (موضوع الخطبة + المساجد المزارة + نظام التوفر)
+        """
         # حسب طلب المستخدم: تجاهل نظام الراحة عند التوزيع الأولي
         khutbas = Khateb.query.all()
         available = []
@@ -531,6 +549,12 @@ class DistributionEngine:
             # استخدام رقم الأسبوع لتحديد دورية "أسبوع متاح / أسبوع غير متاح"
             week_index = target_friday.isocalendar()[1] + target_friday.year * 100
         for khateb in khutbas:
+            # معتمد من المدير فقط
+            if khateb.is_active not in (1, True):
+                continue
+            # يجب أن يكون قد أكمل ملفه (الخطباء القدامى ملفهم جاهز)
+            if not khateb.has_profile():
+                continue
             mode = khateb.availability_mode or 'always'
             if mode == 'alternate' and week_index is not None:
                 offset = khateb.alternate_offset or 0
@@ -727,7 +751,9 @@ def init_sample_data():
                 name=khateb_data["name"],
                 phone=khateb_data["phone"],
                 current_topic=khateb_data["topic"],
-                mosques_visited=json.dumps([])
+                mosques_visited=json.dumps([]),
+                profile_complete=1,
+                is_active=1
             )
             db.session.add(khateb)
 
@@ -825,12 +851,13 @@ def add_khateb():
         availability_mode=availability_mode,
         alternate_offset=alternate_offset,
         forbidden_mosques=json.dumps([int(m) for m in forbidden_mosques]),
-        is_active=0,
+        profile_complete=1,
+        is_active=1,
     )
     db.session.add(khateb)
     db.session.commit()
     
-    flash('تم إضافة الخطيب %s بنجاح. الحساب في انتظار موافقة المدير لتفعيل الدخول.' % name, 'success')
+    flash('تم إضافة الخطيب %s بنجاح. سيظهر في التوزيع تلقائياً.' % name, 'success')
     return redirect(url_for('khutbas'))
 
 
@@ -1936,13 +1963,27 @@ def register():
             alternate_offset=0,
             forbidden_mosques=json.dumps([]),
             password_hash=generate_password_hash(password),
+            profile_complete=0,
             is_active=0,
         )
         db.session.add(khateb)
         db.session.commit()
 
-        flash('تم تسجيل طلبك بنجاح. سيتم تفعيل حسابك بعد موافقة مدير النظام، ثم يمكنك الدخول برقم جوالك وكلمة المرور.', 'success')
-        return redirect(url_for('login'))
+        # رمز مؤقت يتيح للخطيب إكمال ملفه (موضوع الخطبة + المساجد + نظام التوفر)
+        # قبل موافقة المدير، دون الحاجة لتسجيل الدخول.
+        token = secrets.token_urlsafe(24)
+        app_setting = AppSetting.query.get('register_token_%s' % token)
+        if app_setting:
+            db.session.delete(app_setting)
+        db.session.add(AppSetting(
+            key='register_token_%s' % token,
+            value=json.dumps({'khateb_id': khateb.id, 'created': datetime.utcnow().isoformat()}),
+            updated_at=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        flash('تم تسجيل طلبك بنجاح. أكمل بياناتك الآن (موضوع الخطبة والمساجد)، ثم بانتظار موافقة المدير.', 'success')
+        return redirect(url_for('my_profile_setup', token=token))
 
     return render_template('register.html')
 
@@ -1953,6 +1994,88 @@ def logout():
     logout_session()
     flash('تم تسجيل الخروج', 'success')
     return redirect(url_for('login'))
+
+
+@app.route('/my/profile', methods=['GET', 'POST'])
+def my_profile_setup():
+    """صفحة ملف الخطيب: موضوع الخطبة الحالية + المساجد المزارة + المستثناة + نظام التوفر
+
+    يمكن الوصول إليها:
+    - بعد التسجيل مباشرة عبر رمز مؤقت (token) قبل موافقة المدير.
+    - بعد تسجيل الدخول (لتعديل البيانات لاحقاً).
+    """
+    khateb = None
+    token = (request.values.get('token', '') or '').strip()
+
+    if token:
+        setting = AppSetting.query.get('register_token_%s' % token)
+        if not setting:
+            flash('رابط الإعداد غير صالح أو انتهت صلاحيته، يرجى تسجيل الدخول أو إعادة التسجيل', 'error')
+            return redirect(url_for('login'))
+        try:
+            data = json.loads(setting.value or '{}')
+        except Exception:
+            data = {}
+        khateb = Khateb.query.get(data.get('khateb_id'))
+        if not khateb:
+            flash('تعذّر العثور على الحساب', 'error')
+            return redirect(url_for('login'))
+    else:
+        khateb = current_khateb()
+        if not khateb:
+            flash('يرجى تسجيل الدخول أولاً', 'error')
+            return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        topic = (request.form.get('current_topic', '') or '').strip()
+        visited_raw = request.form.getlist('visited_mosques')
+        forbidden_raw = request.form.getlist('forbidden_mosques')
+        availability_mode = request.form.get('availability_mode', 'always')
+        if availability_mode not in ('always', 'alternate'):
+            availability_mode = 'always'
+        try:
+            alternate_offset = int(request.form.get('alternate_offset', 0) or 0)
+        except (TypeError, ValueError):
+            alternate_offset = 0
+
+        if not topic:
+            flash('يرجى كتابة موضوع خطبتك الحالية', 'error')
+        else:
+            # تحويل القوائم إلى أرقام صحيحة
+            try:
+                visited = sorted({int(m) for m in visited_raw})
+                forbidden = sorted({int(m) for m in forbidden_raw})
+            except (TypeError, ValueError):
+                visited, forbidden = [], []
+
+            khateb.current_topic = topic[:300]
+            khateb.mosques_visited = json.dumps(visited)
+            khateb.forbidden_mosques = json.dumps(forbidden)
+            khateb.availability_mode = availability_mode
+            khateb.alternate_offset = alternate_offset
+            khateb.profile_complete = 1
+            db.session.add(khateb)
+
+            # استهلاك الرمز المؤقت بعد الحفظ
+            if token:
+                setting = AppSetting.query.get('register_token_%s' % token)
+                if setting:
+                    db.session.delete(setting)
+            db.session.commit()
+
+            flash('تم حفظ بياناتك بنجاح. حسابك الآن بانتظار موافقة مدير النظام، وسيظهر تلقائياً في توزيع الجدول بعد الموافقة.', 'success')
+            return redirect(url_for('login'))
+
+    mosques = Mosque.query.order_by(Mosque.name).all()
+    visited = set(khateb.get_visited_mosques_list())
+    forbidden = set(khateb.get_forbidden_mosques_list())
+
+    return render_template('my_profile.html',
+                           khateb=khateb,
+                           mosques=mosques,
+                           visited=visited,
+                           forbidden=forbidden,
+                           token=token)
 
 
 # ============================================
@@ -2223,11 +2346,16 @@ def khateb_allow(khateb_id):
         flash('حساب الشيخ %s مفعّل بالفعل' % khateb.name, 'info')
         return redirect(url_for('settings'))
 
+    # لا يُسمح بالدخول قبل اكتمال بيانات الخطيب (موضوع الخطبة + المساجد + نظام التوفر)
+    if not khateb.has_profile():
+        flash('لا يمكن السماح للشيخ %s بالدخول قبل أن يكمل بياناته (موضوع الخطبة والمساجد ونظام التوفر).' % khateb.name, 'error')
+        return redirect(url_for('settings'))
+
     khateb.is_active = 1
     db.session.add(khateb)
     db.session.commit()
 
-    flash('تم السماح للشيخ %s بالدخول. يستطيع الآن الدخول برقم جواله وكلمة المرور التي اختارها.' % khateb.name, 'success')
+    flash('تم السماح للشيخ %s بالدخول. سيظهر تلقائياً في توزيع الجدول عند إنشاء التوزيع.' % khateb.name, 'success')
     return redirect(url_for('settings'))
 
 
@@ -2265,10 +2393,17 @@ def khateb_toggle_active(khateb_id):
     db.session.add(khateb)
     db.session.commit()
 
+    if khateb.is_active and not khateb.has_profile():
+        msg = 'تم تفعيل دخول الخطيب — لكن لم يكمل بياناته بعد، لن يظهر في التوزيع حتى يكملها.'
+    elif khateb.is_active:
+        msg = 'تم تفعيل دخول الخطيب'
+    else:
+        msg = 'تم إيقاف دخول الخطيب'
+
     return jsonify({
         'success': True,
         'is_active': khateb.is_active,
-        'message': 'تم تفعيل دخول الخطيب' if khateb.is_active else 'تم إيقاف دخول الخطيب'
+        'message': msg
     })
 
 

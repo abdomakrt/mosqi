@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}ملف الخطيب - نظام توزيع الخطباء{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="mb-4">
+            <h1><i class="fas fa-id-card"></i> ملف الخطيب</h1>
+            <p class="text-muted">
+                أهلاً يا الشيخ {{ khateb.name }} — أكمل بياناتك التالية لتُدرج تلقائياً في توزيع الجدول
+            </p>
+        </div>
+    </div>
+</div>
+
+{% if not khateb.profile_complete %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            هذه البيانات ضرورية لتوزيع المساجد عليك بشكل صحيح.
+            بعد حفظها، سيراجعها مدير النظام وسمح لك بالدخول،
+            وتظهر تلقائياً في جدول التوزيع.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<form method="POST"
+      action="{% if token %}{{ url_for('my_profile_setup', token=token) }}{% else %}{{ url_for('my_profile_setup') }}{% endif %}"
+      novalidate>
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-comment-dots"></i> موضوع خطبتك الحالية</h5>
+                </div>
+                <div class="card-body">
+                    <label for="currentTopic" class="form-label">ما هو موضوع خطبتك الحالية؟</label>
+                    <input type="text" class="form-control" id="currentTopic" name="current_topic"
+                           maxlength="300" required
+                           value="{{ khateb.current_topic if khateb.current_topic != 'موضوع افتراضي' else '' }}"
+                           placeholder="مثال: فضل الله ورعاه — حديث إنما الأعمال بالنيات">
+                    <small class="text-muted">
+                        هذا الموضوع يظهر في توزيعاتك الحالية، ويمكنك تغييره لاحقاً أو طلب موضوع جديد.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-calendar-check"></i> هل تخطب كل جمعة أم جمعة وجمعة لا؟</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="radio" name="availability_mode"
+                               id="modeAlways" value="always"
+                               {% if khateb.availability_mode != 'alternate' %}checked{% endif %}>
+                        <label class="form-check-label" for="modeAlways">
+                            <strong>أخطب كل جمعة</strong>
+                            <br>
+                            <small class="text-muted">
+                                يُوزَّع عليّ في كل أسابيع التوزيع بلا استثناء.
+                            </small>
+                        </label>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="availability_mode"
+                               id="modeAlternate" value="alternate"
+                               {% if khateb.availability_mode == 'alternate' %}checked{% endif %}>
+                        <label class="form-check-label" for="modeAlternate">
+                            <strong>أخطب جمعة وأغيب جمعة</strong>
+                            <br>
+                            <small class="text-muted">
+                                يُوزَّع عليّ في أسبوع ويغيب في الأسبوع التالي.
+                            </small>
+                        </label>
+                    </div>
+
+                    <div class="mt-3" id="offsetWrap"
+                         {% if khateb.availability_mode != 'alternate' %}style="display:none;"{% endif %}>
+                        <label for="alternateOffset" class="form-label">
+                            رقم الأسبوع الذي تبدأ به دورتك (اختياري)
+                        </label>
+                        <input type="number" class="form-control" id="alternateOffset" name="alternate_offset"
+                               min="0" max="10" value="{{ khateb.alternate_offset or 0 }}">
+                        <small class="text-muted">
+                            اتركه 0 إن لم تكن لديك تفضيلات خاصة — سيبدأ النظام الترتيب تلقائياً.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-mosque"></i> المساجد التي خطبت فيها مسبقاً</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        حدد المساجد التي أديت فيها خطبتك الحالية — النظام لن يوزّعك عليها مرة أخرى
+                        حتى تُبدأ دورة موضوع جديدة.
+                    </p>
+                    {% if mosques %}
+                    <div class="row">
+                        {% for mosque in mosques %}
+                        <div class="col-md-6 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox"
+                                       name="visited_mosques" value="{{ mosque.id }}"
+                                       id="vmosque{{ mosque.id }}"
+                                       {% if mosque.id in visited %}checked{% endif %}>
+                                <label class="form-check-label" for="vmosque{{ mosque.id }}">
+                                    {{ mosque.name }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning mb-0">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        لا توجد مساجد مسجلة في النظام حالياً. أبلغ مدير النظام لإضافة المساجد،
+                        ثم عد لتحديث هذه الصفحة.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-ban"></i> المساجد المستثناة (لا تخطب فيها)</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        حدد المساجد التي لا تريد التوزيع فيها (لظروف شخصية أو جغرافية).
+                        لن يُوزَّع الخطيب عليها إطلاقاً.
+                    </p>
+                    {% if mosques %}
+                    <div class="row">
+                        {% for mosque in mosques %}
+                        <div class="col-md-6 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox"
+                                       name="forbidden_mosques" value="{{ mosque.id }}"
+                                       id="fmosque{{ mosque.id }}"
+                                       {% if mosque.id in forbidden %}checked{% endif %}>
+                                <label class="form-check-label" for="fmosque{{ mosque.id }}">
+                                    {{ mosque.name }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">لا توجد مساجد مسجلة بعد.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <button type="submit" class="btn btn-success btn-lg w-100"
+                    onclick="return confirm('هل تريد حفظ بياناتك؟');">
+                <i class="fas fa-save"></i> حفظ البيانات وإرسالها للمدير
+            </button>
+            {% if not token %}
+            <a href="{{ url_for('my') }}" class="btn btn-link w-100 mt-2">العودة لجدولي</a>
+            {% endif %}
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    var modeAlways = document.getElementById('modeAlways');
+    var modeAlternate = document.getElementById('modeAlternate');
+    var offsetWrap = document.getElementById('offsetWrap');
+
+    function toggleOffset() {
+        offsetWrap.style.display = modeAlternate.checked ? '' : 'none';
+    }
+
+    modeAlways.addEventListener('change', toggleOffset);
+    modeAlternate.addEventListener('change', toggleOffset);
+})();
+</script>
+{% endblock %}

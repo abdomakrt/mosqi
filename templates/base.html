@@ -359,7 +359,8 @@
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% if messages %}
                         {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} fade-in" role="alert">
+                            {% set alert_type = 'danger' if category == 'error' else category %}
+                            <div class="alert alert-{{ alert_type }} fade-in" role="alert">
                                 <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' if category == 'error' else 'info-circle' }}"></i>
                                 {{ message }}
                             </div>

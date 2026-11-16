@@ -483,6 +483,7 @@
                                 <th>الخطيب</th>
                                 <th>رقم الجوال</th>
                                 <th>كلمة المرور</th>
+                                <th>الملف</th>
                                 <th>حالة الحساب</th>
                                 <th>إجراءات</th>
                             </tr>
@@ -500,6 +501,13 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if khateb.profile_complete %}
+                                        <span class="badge bg-success">مكتمل</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">ناقص — بانتظار الخطيب</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     {% if khateb.is_active in (None, 0) %}
                                         <span class="badge bg-warning">بانتظار موافقة المدير</span>
                                     {% else %}
@@ -511,7 +519,8 @@
                                     <form method="POST" action="{{ url_for('khateb_allow', khateb_id=khateb.id) }}"
                                           style="display:inline"
                                           onsubmit="return confirm('السماح للشيخ {{ khateb.name }} بالدخول؟');">
-                                        <button type="submit" class="btn btn-sm btn-success">
+                                        <button type="submit" class="btn btn-sm btn-success"
+                                                {% if not khateb.profile_complete %}disabled title="لم يكمل الخطيب بياناته بعد"{% endif %}>
                                             <i class="fas fa-check"></i> السماح بالدخول
                                         </button>
                                     </form>
