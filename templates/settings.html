@@ -468,12 +468,12 @@
     </div>
 </div>
 
-<!-- رموز دخول الخطباء -->
+<!-- حسابات الخطباء -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-key"></i> رموز دخول الخطباء</h5>
+                <h5 class="mb-0"><i class="fas fa-user-shield"></i> حسابات الخطباء والسماح بالدخول</h5>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -482,36 +482,46 @@
                             <tr>
                                 <th>الخطيب</th>
                                 <th>رقم الجوال</th>
-                                <th>حالة الرمز</th>
+                                <th>كلمة المرور</th>
                                 <th>حالة الحساب</th>
                                 <th>إجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for khateb in khutbas %}
-                            <tr>
+                            <tr class="{% if khateb.is_active in (None, 0) %}table-warning{% endif %}">
                                 <td><strong>{{ khateb.name }}</strong></td>
                                 <td>{{ khateb.phone or 'غير محدد' }}</td>
                                 <td>
-                                    {% if khateb._has_code %}
-                                        <span class="badge bg-success">تم التعيين</span>
+                                    {% if khateb._has_password %}
+                                        <span class="badge bg-success">معيّنة</span>
                                     {% else %}
-                                        <span class="badge bg-secondary">لا يوجد رمز</span>
+                                        <span class="badge bg-secondary">غير معيّنة</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if khateb.is_active in (None, 1) %}
+                                    {% if khateb.is_active in (None, 0) %}
+                                        <span class="badge bg-warning">بانتظار موافقة المدير</span>
+                                    {% else %}
                                         <span class="badge bg-success">مفعّل</span>
-                                    {% else %}
-                                        <span class="badge bg-danger">موقوف</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-warning" onclick="regenerateCode({{ khateb.id }})">
-                                        <i class="fas fa-rotate"></i> إعادة توليد الرمز
-                                    </button>
+                                    {% if khateb.is_active in (None, 0) %}
+                                    <form method="POST" action="{{ url_for('khateb_allow', khateb_id=khateb.id) }}"
+                                          style="display:inline"
+                                          onsubmit="return confirm('السماح للشيخ {{ khateb.name }} بالدخول؟');">
+                                        <button type="submit" class="btn btn-sm btn-success">
+                                            <i class="fas fa-check"></i> السماح بالدخول
+                                        </button>
+                                    </form>
+                                    {% endif %}
                                     <button class="btn btn-sm btn-outline-secondary" onclick="toggleActive({{ khateb.id }})">
                                         <i class="fas fa-power-off"></i> تفعيل/إيقاف
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" type="button"
+                                            onclick="setPassword({{ khateb.id }}, '{{ khateb.name }}')">
+                                        <i class="fas fa-key"></i> تعيين كلمة مرور
                                     </button>
                                 </td>
                             </tr>
@@ -647,24 +657,41 @@
     </div>
 </div>
 
-<!-- Modal عرض رمز الدخول (مرة واحدة) -->
-<div class="modal fade" id="accessCodeModal" tabindex="-1">
+<!-- Modal تعيين كلمة مرور خطيب -->
+<div class="modal fade" id="setPasswordModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-key"></i> رمز الدخول - <span id="accessCodeName"></span></h5>
+                <h5 class="modal-title">
+                    <i class="fas fa-key"></i> تعيين كلمة مرور -
+                    <span id="setPasswordName"></span>
+                </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body text-center">
-                <p class="mb-2">هذا الرمز يظهر <strong>مرة واحدة فقط</strong> - انسخه الآن وأرسله للخطيب:</p>
-                <h3 class="text-primary" id="accessCodeValue" style="letter-spacing: 5px;">------</h3>
-                <p class="text-muted small mt-3 mb-0">
-                    يُخزَّن الرمز مشفّراً في قاعدة البيانات ولا يمكن استرجاعه إلا بإعادة توليد رمز جديد.
-                </p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إغلاق</button>
-            </div>
+            <form method="POST" id="setPasswordForm" novalidate>
+                <div class="modal-body">
+                    <input type="hidden" name="khateb_id" id="setPasswordKhatebId">
+                    <div class="mb-3">
+                        <label for="newKhatebPassword" class="form-label">كلمة المرور الجديدة</label>
+                        <input type="password" class="form-control" id="newKhatebPassword" name="password"
+                               minlength="6" placeholder="6 أحرف على الأقل" required autocomplete="new-password">
+                        <small class="text-muted">
+                            كلمة المرور تُخزَّن مشفّرة في قاعدة البيانات ولا يمكن استرجاعها.
+                        </small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newKhatebPassword2" class="form-label">تأكيد كلمة المرور</label>
+                        <input type="password" class="form-control" id="newKhatebPassword2" name="confirm_password"
+                               minlength="6" placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> حفظ كلمة المرور
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -765,20 +792,13 @@ function saveKhatebSpecial(id) {
     });
 }
 
-function regenerateCode(khatebId) {
-    if (!confirm('سيتم إلغاء الرمز السابق وتوليد رمز جديد. هل تريد المتابعة؟')) return;
-    fetch('/khateb/' + khatebId + '/regenerate_code', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            document.getElementById('accessCodeName').textContent = data.khateb_name;
-            document.getElementById('accessCodeValue').textContent = data.code;
-            new bootstrap.Modal(document.getElementById('accessCodeModal')).show();
-        } else {
-            alert('حدث خطأ: ' + (data.message || ''));
-        }
-    })
-    .catch(err => { console.error(err); alert('حدث خطأ أثناء توليد الرمز'); });
+function setPassword(khatebId, khatebName) {
+    document.getElementById('setPasswordName').textContent = khatebName;
+    document.getElementById('setPasswordKhatebId').value = khatebId;
+    document.getElementById('setPasswordForm').action = '/khateb/' + khatebId + '/set_password';
+    document.getElementById('newKhatebPassword').value = '';
+    document.getElementById('newKhatebPassword2').value = '';
+    new bootstrap.Modal(document.getElementById('setPasswordModal')).show();
 }
 
 function toggleActive(khatebId) {

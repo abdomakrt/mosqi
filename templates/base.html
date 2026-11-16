@@ -340,6 +340,12 @@
                             <i class="fas fa-sign-out-alt"></i> تسجيل الخروج
                         </a>
                     </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'register' %}active{% endif %}" href="{{ url_for('register') }}">
+                            <i class="fas fa-user-plus"></i> تسجيل خطيب
+                        </a>
+                    </li>
                     {% endif %}
                 </ul>
             </div>

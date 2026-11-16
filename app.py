@@ -14,7 +14,6 @@ from sqlalchemy import inspect as sa_inspect
 import json
 import os
 import re
-import secrets
 import shutil
 import sqlite3
 import sys
@@ -64,26 +63,6 @@ def warn_dev_defaults():
 # ============================================
 # المصادقة والصلاحيات (دوران فقط: مدير / خطيب)
 # ============================================
-
-def generate_access_code():
-    """توليد رمز دخول عشوائي من 6 أرقام"""
-    return '%06d' % secrets.randbelow(1000000)
-
-
-def hash_access_code(code):
-    """تشفير رمز الدخول باستخدام Werkzeug"""
-    return generate_password_hash(str(code))
-
-
-def verify_access_code(khateb, code):
-    """التحقق من رمز الدخول الخاص بالخطيب"""
-    if not khateb or not khateb.access_code_hash or not code:
-        return False
-    try:
-        return check_password_hash(khateb.access_code_hash, str(code).strip())
-    except Exception:
-        return False
-
 
 def normalize_phone(phone):
     """توحيد صيغة رقم الجوال (مثال: 0501234567 أو +966501234567 -> 966501234567)"""
@@ -393,8 +372,8 @@ class Khateb(db.Model):
     availability_mode = db.Column(db.String(20), default='always')  # always / alternate
     alternate_offset = db.Column(db.Integer, default=0)
     forbidden_mosques = db.Column(db.Text, default='[]')  # JSON array of mosque IDs
-    access_code_hash = db.Column(db.String(255))  # رمز الدخول المشفّر (6 أرقام)
-    is_active = db.Column(db.Integer, default=1)  # 1 = مفعّل، 0 = موقوف
+    password_hash = db.Column(db.String(255))  # كلمة مرور الخطيب المشفّرة
+    is_active = db.Column(db.Integer, default=0)  # 1 = مفعّل، 0 = في انتظار موافقة المدير
     pending_topic = db.Column(db.String(300), nullable=True)  # موضوع مقترح بانتظار اعتماد المدير
     pending_topic_mode = db.Column(db.String(20), nullable=True)  # reset = من جديد / after_current = بعد إنهاء المساجد
     pending_topic_approved = db.Column(db.Integer, default=0)  # 1 = معتمد ومجدول للتفعيل بعد إنهاء المساجد
@@ -838,9 +817,6 @@ def add_khateb():
         flash('اسم الخطيب مطلوب', 'error')
         return redirect(url_for('khutbas'))
     
-    # توليد رمز دخول (6 أرقام) - يظهر للمدير مرة واحدة فقط
-    access_code = generate_access_code()
-
     khateb = Khateb(
         name=name,
         phone=phone,
@@ -849,13 +825,12 @@ def add_khateb():
         availability_mode=availability_mode,
         alternate_offset=alternate_offset,
         forbidden_mosques=json.dumps([int(m) for m in forbidden_mosques]),
-        access_code_hash=hash_access_code(access_code),
-        is_active=1
+        is_active=0,
     )
     db.session.add(khateb)
     db.session.commit()
     
-    flash('تم إضافة الخطيب بنجاح. رمز الدخول للشيخ %s هو: %s (يظهر مرة واحدة فقط - احفظه الآن)' % (name, access_code), 'success')
+    flash('تم إضافة الخطيب %s بنجاح. الحساب في انتظار موافقة المدير لتفعيل الدخول.' % name, 'success')
     return redirect(url_for('khutbas'))
 
 
@@ -1344,7 +1319,7 @@ def settings():
         khateb._forbidden = khateb.get_forbidden_mosques_list()
         # معلومات إضافية للوحة "خطباء يحتاجون موضوعاً جديداً" والدخول
         khateb._need_new_topic = bool(total_mosques) and khateb._visited_count >= total_mosques
-        khateb._has_code = bool(khateb.access_code_hash)
+        khateb._has_password = bool(khateb.password_hash)
         khateb._wa_link = whatsapp_link(khateb.phone, khateb.name)
         khateb._seasonal_active = khateb.is_seasonal_active()
 
@@ -1890,9 +1865,9 @@ def login():
             flash('كلمة المرور غير صحيحة', 'error')
             return render_template('login.html', role='admin')
 
-        # دخول الخطيب: رقم الجوال + رمز الدخول
+        # دخول الخطيب: رقم الجوال + كلمة المرور
         phone = (request.form.get('phone', '') or '').strip()
-        code = (request.form.get('code', '') or '').strip()
+        password = (request.form.get('password', '') or '').strip()
         normalized = normalize_phone(phone)
 
         khateb = None
@@ -1905,9 +1880,11 @@ def login():
         if not khateb:
             flash('لا يوجد خطيب مسجل بهذا الرقم', 'error')
         elif khateb.is_active in (None, 0):
-            flash('هذا الحساب موقوف، يرجى التواصل مع الإدارة', 'error')
-        elif not verify_access_code(khateb, code):
-            flash('رمز الدخول غير صحيح', 'error')
+            flash('حسابك بانتظار موافقة المدير على الدخول، يرجى التواصل مع الإدارة', 'error')
+        elif not khateb.password_hash:
+            flash('لم يتم تعيين كلمة مرور لهذا الحساب، يرجى التواصل مع الإدارة', 'error')
+        elif not check_password_hash(khateb.password_hash, password):
+            flash('كلمة المرور غير صحيحة', 'error')
         else:
             login_khateb(khateb.id)
             flash('أهلاً بك %s' % khateb.name, 'success')
@@ -1916,6 +1893,54 @@ def login():
         return render_template('login.html', role='khateb')
 
     return render_template('login.html', role='admin')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """تسجيل خطيب جديد: الاسم + رقم الجوال + كلمة مرور يختارها بنفسه.
+    يبقى الحساب معطّلاً (is_active = 0) حتى يسمح به المدير من صفحة الإعدادات.
+    """
+    if request.method == 'POST':
+        name = (request.form.get('name', '') or '').strip()
+        phone = (request.form.get('phone', '') or '').strip()
+        password = (request.form.get('password', '') or '').strip()
+        confirm_password = (request.form.get('confirm_password', '') or '').strip()
+
+        if not name or not phone or not password:
+            flash('الاسم ورقم الجوال وكلمة المرور مطلوبة', 'error')
+            return render_template('register.html')
+        if len(password) < 6:
+            flash('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error')
+            return render_template('register.html')
+        if confirm_password and password != confirm_password:
+            flash('كلمتا المرور غير متطابقتين', 'error')
+            return render_template('register.html')
+
+        # منع تكرار رقم الجوال (مع مراعاة اختلاف صيغة الرقم)
+        normalized = normalize_phone(phone)
+        for existing in Khateb.query.all():
+            if normalize_phone(existing.phone) == normalized:
+                flash('رقم الجوال مسجل مسبقاً، يرجى التواصل مع الإدارة لتفعيل حسابك', 'error')
+                return render_template('register.html')
+
+        khateb = Khateb(
+            name=name,
+            phone=phone,
+            current_topic='موضوع افتراضي',
+            mosques_visited=json.dumps([]),
+            availability_mode='always',
+            alternate_offset=0,
+            forbidden_mosques=json.dumps([]),
+            password_hash=generate_password_hash(password),
+            is_active=0,
+        )
+        db.session.add(khateb)
+        db.session.commit()
+
+        flash('تم تسجيل طلبك بنجاح. سيتم تفعيل حسابك بعد موافقة مدير النظام، ثم يمكنك الدخول برقم جوالك وكلمة المرور.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
 
 
 @app.route('/logout')
@@ -2178,28 +2203,68 @@ def my_cancel_pending_topic():
 
 
 # ============================================
-# مسارات المدير: رموز الدخول واعتماد المواضيع
+# مسارات المدير: حسابات الخطباء واعتماد المواضيع
 # ============================================
 
-@app.route('/khateb/<int:khateb_id>/regenerate_code', methods=['POST'])
+@app.route('/khateb/<int:khateb_id>/allow', methods=['POST'])
 @admin_required
-def khateb_regenerate_code(khateb_id):
-    """إعادة توليد رمز الدخول (يظهر مرة واحدة في الاستجابة)"""
+def khateb_allow(khateb_id):
+    """السماح للخطيب بالدخول بعد مراجعته في صفحة الإعدادات"""
+    khateb = Khateb.query.get(khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'error')
+        return redirect(url_for('settings'))
+
+    if khateb.is_active == 1:
+        flash('حساب الشيخ %s مفعّل بالفعل' % khateb.name, 'info')
+        return redirect(url_for('settings'))
+
+    khateb.is_active = 1
+    db.session.add(khateb)
+    db.session.commit()
+
+    flash('تم السماح للشيخ %s بالدخول. يستطيع الآن الدخول برقم جواله وكلمة المرور التي اختارها.' % khateb.name, 'success')
+    return redirect(url_for('settings'))
+
+
+@app.route('/khateb/<int:khateb_id>/set_password', methods=['POST'])
+@admin_required
+def khateb_set_password(khateb_id):
+    """تعيين كلمة مرور جديدة للخطيب (يختارها المدير)"""
+    khateb = Khateb.query.get(khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'error')
+        return redirect(url_for('settings'))
+
+    password = (request.form.get('password', '') or '').strip()
+    if len(password) < 6:
+        flash('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error')
+        return redirect(url_for('settings'))
+
+    khateb.password_hash = generate_password_hash(password)
+    db.session.add(khateb)
+    db.session.commit()
+
+    flash('تم تعيين كلمة مرور جديدة للشيخ %s. أخبره بها ليتمكن من الدخول.' % khateb.name, 'success')
+    return redirect(url_for('settings'))
+
+
+@app.route('/khateb/<int:khateb_id>/toggle_active', methods=['POST'])
+@admin_required
+def khateb_toggle_active(khateb_id):
+    """تفعيل / إيقاف دخول الخطيب"""
     khateb = Khateb.query.get(khateb_id)
     if not khateb:
         return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
 
-    code = generate_access_code()
-    khateb.access_code_hash = hash_access_code(code)
+    khateb.is_active = 0 if khateb.is_active in (None, 1) else 1
     db.session.add(khateb)
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': 'تم توليد رمز دخول جديد',
-        'khateb_id': khateb.id,
-        'khateb_name': khateb.name,
-        'code': code
+        'is_active': khateb.is_active,
+        'message': 'تم تفعيل دخول الخطيب' if khateb.is_active else 'تم إيقاف دخول الخطيب'
     })
 
 
@@ -2306,25 +2371,6 @@ def khateb_reject_topic(khateb_id):
     db.session.commit()
     flash('تم إلغاء الموضوع المقترح للخطيب %s' % khateb.name, 'success')
     return redirect(url_for('settings'))
-
-
-@app.route('/khateb/<int:khateb_id>/toggle_active', methods=['POST'])
-@admin_required
-def khateb_toggle_active(khateb_id):
-    """تفعيل / إيقاف دخول الخطيب"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
-
-    khateb.is_active = 0 if khateb.is_active in (None, 1) else 1
-    db.session.add(khateb)
-    db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'is_active': khateb.is_active,
-        'message': 'تم تفعيل دخول الخطيب' if khateb.is_active else 'تم إيقاف دخول الخطيب'
-    })
 
 
 if __name__ == '__main__':

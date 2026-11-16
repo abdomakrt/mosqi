@@ -32,8 +32,8 @@ CREATE_TABLES = [
 # الأعمدة المضافة: (اسم الجدول، [(اسم العمود, تعريف العمود), ...])
 MIGRATIONS = {
     'khateb': [
-        ('access_code_hash', 'TEXT'),
-        ('is_active', 'INTEGER DEFAULT 1'),
+        ('password_hash', 'TEXT'),
+        ('is_active', 'INTEGER DEFAULT 0'),
         ('pending_topic', 'VARCHAR(300)'),
         ('pending_topic_mode', 'VARCHAR(20)'),
         ('pending_topic_approved', 'INTEGER DEFAULT 0'),
