@@ -71,3 +71,8 @@ instance/
 # SQLite DB
 *.db
 
+# أسرار الإنتاج (متغيرات البيئة)
+.env
+.env.*
+!.env.example
+
