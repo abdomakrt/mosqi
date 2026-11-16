@@ -108,7 +108,7 @@
                 (ثم يعود موضوعك الأساسي تلقائياً).
             </span>
             <form method="POST" action="{{ url_for('my_cancel_seasonal_topic') }}" style="display:inline"
-                  onsubmit="return confirmKhatebApology(event, this);">
+                  onsubmit="return confirm('هل تريد إلغاء الموضوع الموسمي والعودة لموضوعك الأساسي؟');">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">
                     <i class="fas fa-times"></i> إلغاء الموضوع الموسمي
                 </button>
@@ -141,7 +141,7 @@
                 — يُفعَّل تلقائياً بعد إنهائك جميع المساجد بالموضوع الحالي.
             </span>
             <form method="POST" action="{{ url_for('my_cancel_pending_topic') }}" style="display:inline"
-                  onsubmit="return confirmKhatebApology(event, this);">
+                  onsubmit="return confirm('هل تريد إلغاء الموضوع القادم؟');">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">
                     <i class="fas fa-times"></i> إلغاء
                 </button>
@@ -202,8 +202,7 @@
                                             </form>
                                             {% else %}
                                             <form method="POST" action="{{ url_for('my_undo_apologize', assignment_id=a.id) }}"
-                                                  style="display:inline"
-                                                  onsubmit="return confirmKhatebApology(event, this);">
+                                                  style="display:inline">
                                                 <button type="submit" class="btn btn-sm btn-outline-success">
                                                     <i class="fas fa-undo"></i> تراجع عن الإلغاء
                                                 </button>
