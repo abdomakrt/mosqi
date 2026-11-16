@@ -10,6 +10,7 @@
 
 import os
 import sys
+from importlib.metadata import version
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
@@ -39,10 +40,10 @@ print('1) متغيرات البيئة')
 env_file = os.path.join(PROJECT_DIR, '.env')
 if os.path.exists(env_file):
     with open(env_file, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
+        for raw_line in f:
+            raw_line = raw_line.strip()
+            if raw_line and not raw_line.startswith('#') and '=' in raw_line:
+                k, v = raw_line.split('=', 1)
                 os.environ.setdefault(k.strip(), v.strip())
 
 check('SECRET_KEY مضبوط', bool(os.environ.get('SECRET_KEY')),
@@ -55,17 +56,16 @@ print()
 print('2) المكتبات')
 try:
     import flask
-    check('Flask', True, flask.__version__)
+    check('Flask', True, version('flask'))
 except Exception as e:
     check('Flask', False, e)
 try:
     import flask_sqlalchemy
-    check('Flask-SQLAlchemy', True, flask_sqlalchemy.__version__)
+    check('Flask-SQLAlchemy', True, version('flask-sqlalchemy'))
 except Exception as e:
     check('Flask-SQLAlchemy', False, e)
 try:
     import werkzeug
-    from importlib.metadata import version
     check('Werkzeug', True, version('werkzeug'))
 except Exception as e:
     check('Werkzeug', False, e)
@@ -77,13 +77,14 @@ try:
     from app import app, db
     check('استيراد التطبيق', True)
     with app.app_context():
+        db.create_all()
         from migrate import run_migrations
         run_migrations(verbose=False)
         check('الترحيل (migrate)', True)
 
         from app import Mosque, Khateb, Assignment, WeeklySchedule, AppSetting
         check('جدول المساجد', Mosque.query.count() is not None, '%d مسجد' % Mosque.query.count())
-        check('جدول الخطباء', Khateb.query.count() is not None, '%d خطيب' % Khateb.query.count())
+        check('جدول الخطباء', Khateb.query.count() is not None, '%d خطيب' % Khateb.count() if hasattr(Khateb, 'count') else '%d خطيب' % Khateb.query.count())
         check('جدول التعيينات', Assignment.query.count() is not None, '%d تعيين' % Assignment.query.count())
 
         db_path = os.path.join(app.instance_path, 'khutba_distribution.db')

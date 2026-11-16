@@ -2,15 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 سكربت ترحيل بسيط وقابل للتكرار (Idempotent) لقاعدة بيانات SQLite.
-
-الهدف:
-- فحص بنية الجداول عبر PRAGMA table_info
-- إضافة الأعمدة الناقصة فقط (بدون حذف أو إعادة تسمية)
-- يمكن تشغيله أكثر من مرة بدون أي أثر جانبي
-
-الاستخدام:
-    python3 migrate.py
-أو يُستدعى تلقائياً من app.py عند الإقلاع داخل app_context.
 """
 
 import os
@@ -19,7 +10,6 @@ import sqlite3
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'instance', 'khutba_distribution.db')
 
-# جداول يُنشأ إن لم تكن موجودة (إضافة فقط - لا حذف ولا إعادة تسمية)
 CREATE_TABLES = [
     ("""CREATE TABLE IF NOT EXISTS app_setting (
             key TEXT NOT NULL,
@@ -29,7 +19,6 @@ CREATE_TABLES = [
         )""", 'app_setting'),
 ]
 
-# الأعمدة المضافة: (اسم الجدول، [(اسم العمود, تعريف العمود), ...])
 MIGRATIONS = {
     'khateb': [
         ('password_hash', 'TEXT'),
@@ -59,20 +48,40 @@ def _existing_columns(cursor, table_name):
     return [row[1] for row in cursor.fetchall()]
 
 
+def _ensure_base_schema(verbose=True):
+    """إنشاء الجداول الأساسية عبر SQLAlchemy إذا لم تكن قاعدة البيانات مهيأة بعد."""
+    try:
+        from app import app, db
+        os.makedirs(app.instance_path, exist_ok=True)
+        with app.app_context():
+            db.create_all()
+        if verbose:
+            print("[migrate] تم إنشاء الجداول الأساسية لقاعدة البيانات")
+    except Exception as e:
+        if verbose:
+            print("[migrate] تنبيه أثناء تهيئة الجداول الأساسية: %s" % e)
+
+
 def run_migrations(db_path=DB_PATH, verbose=True):
     """تنفيذ الترحيل. يعيد قائمة الأعمدة التي تمت إضافتها فعلياً."""
     applied = []
 
     if not os.path.exists(db_path):
         if verbose:
-            print("[migrate] قاعدة البيانات غير موجودة بعد: %s" % db_path)
-        return applied
+            print("[migrate] قاعدة البيانات غير موجودة بعد، جارٍ إنشاؤها: %s" % db_path)
+        _ensure_base_schema(verbose=verbose)
+        if not os.path.exists(db_path):
+            return applied
 
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()
+        if not _table_exists(cursor, 'mosque'):
+            conn.close()
+            _ensure_base_schema(verbose=verbose)
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
 
-        # إنشاء الجداول الناقصة (إضافة فقط)
         for create_sql, table_name in CREATE_TABLES:
             if not _table_exists(cursor, table_name):
                 cursor.execute(create_sql)
@@ -95,17 +104,15 @@ def run_migrations(db_path=DB_PATH, verbose=True):
                 if verbose:
                     print("[migrate] تمت إضافة العمود %s.%s" % (table_name, column_name))
 
-        # ضمان قيمة افتراضية صحيحة للخطباء القدامى
         if _table_exists(cursor, 'khateb'):
-            if 'is_active' in _existing_columns(cursor, 'khateb'):
+            existing_khateb_cols = _existing_columns(cursor, 'khateb')
+            if 'is_active' in existing_khateb_cols:
                 cursor.execute("UPDATE khateb SET is_active = 1 WHERE is_active IS NULL")
-            # الخطباء المسجلون قبل هذا التحديث كانت بياناتهم جاهزة من المدير،
-            # أما المنضمون الجدد فيُسجّلون بقيمة 0 صراحةً حتى يكملوا ملفهم.
-            if 'profile_complete' in _existing_columns(cursor, 'khateb'):
+            if 'profile_complete' in existing_khateb_cols:
                 cursor.execute("UPDATE khateb SET profile_complete = 1 WHERE profile_complete IS NULL")
-            if 'forbidden_mosques' in _existing_columns(cursor, 'khateb'):
+            if 'forbidden_mosques' in existing_khateb_cols:
                 cursor.execute("UPDATE khateb SET forbidden_mosques = '[]' WHERE forbidden_mosques IS NULL")
-            if 'mosques_visited' in _existing_columns(cursor, 'khateb'):
+            if 'mosques_visited' in existing_khateb_cols:
                 cursor.execute("UPDATE khateb SET mosques_visited = '[]' WHERE mosques_visited IS NULL")
 
         conn.commit()
