@@ -464,8 +464,8 @@ function confirmAssignment(assignmentId) {
     });
 }
 
-function apologizeAssignment(assignmentId) {
-    if (!confirm('هل أنت متأكد من تقديم اعتذار عن هذا التعيين؟\nنرجو التفكير ثانية لأن هذا عمل تطوعي ذا أجر كبير.')) return;
+async function apologizeAssignment(assignmentId) {
+    if (!(await askApologyConfirmation())) return;
 
     fetch(`/assignment/${assignmentId}/apologize`, {
         method: 'POST'

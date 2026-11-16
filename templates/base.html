@@ -398,5 +398,92 @@
     <script src="/static/js/main.js"></script>
     
     {% block extra_js %}{% endblock %}
+
+<!-- نافذة تأكيد الاعتذار الإيمانية -->
+<div id="customApologyModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,0.65); backdrop-filter:blur(3px); align-items:center; justify-content:center; padding:16px;" dir="rtl">
+    <div style="background:#ffffff; max-width:520px; width:100%; border-radius:16px; box-shadow:0 20px 40px rgba(0,0,0,0.25); overflow:hidden; border-top:6px solid #16a34a; animation:fadeInScale 0.2s ease-out;">
+        <div style="padding:24px 24px 16px; text-align:center;">
+            <div style="width:60px; height:60px; border-radius:50%; background:#dcfce7; color:#15803d; display:inline-flex; align-items:center; justify-content:center; font-size:26px; margin-bottom:12px;">
+                <i class="fas fa-hand-holding-heart"></i>
+            </div>
+            <h5 style="font-weight:800; color:#14532d; margin-bottom:12px;">
+                تذكير قبل الاعتذار عن الخطبة
+            </h5>
+            <p style="font-size:1.1rem; font-weight:700; color:#1e293b; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; line-height:1.8; margin-bottom:12px;">
+                «استعن بالله ولا تعجز، ولا تستبدل نفسك بغيرك فيستبدلك الله»
+            </p>
+            <div style="text-align:right; font-size:0.9rem; color:#475569; background:#f8fafc; border-radius:10px; padding:12px; line-height:1.7; margin-bottom:8px;">
+                <div class="mb-1">
+                    <strong style="color:#0f766e;">قال الله تعالى:</strong>
+                    ﴿وَإِن تَتَوَلَّوْا يَسْتَبْدِلْ قَوْمًا غَيْرَكُمْ ثُمَّ لَا يَكُونُوا أَمْثَالَكُم﴾ [محمد: 38]
+                </div>
+                <div>
+                    <strong style="color:#0f766e;">وقال النبي ﷺ:</strong>
+                    «احْرِصْ عَلَى مَا يَنْفَعُكَ، وَاسْتَعِنْ بِاللَّهِ وَلَا تَعْجَزْ» (رواه مسلم)
+                </div>
+            </div>
+        </div>
+        <div style="padding:16px 24px 24px; display:flex; gap:12px; flex-wrap:wrap; justify-content:center; background:#f8fafc; border-top:1px solid #e2e8f0;">
+            <button type="button" id="btnApologyCancel" class="btn btn-success px-4 py-2 fw-bold flex-grow-1" style="font-size:1rem; border-radius:10px;">
+                <i class="fas fa-check-circle ms-1"></i> استعنت بالله
+            </button>
+            <button type="button" id="btnApologyConfirm" class="btn btn-outline-danger px-3 py-2 fw-bold" style="font-size:0.95rem; border-radius:10px;">
+                <i class="fas fa-user-times ms-1"></i> أنا مصمم على الاعتذار
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- إشعار التراجع عن الاعتذار -->
+<div id="istiAnaToast" style="display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:10000; background:#15803d; color:#fff; padding:12px 24px; border-radius:999px; font-weight:700; box-shadow:0 10px 25px rgba(21,128,61,0.35);" dir="rtl">
+    <i class="fas fa-heart ms-2"></i> أعانك الله وسدّد خطاك وكتب أجرك! تم التراجع عن الاعتذار.
+</div>
+
+<script>
+function askApologyConfirmation() {
+    return new Promise(function(resolve) {
+        var modal = document.getElementById('customApologyModal');
+        var btnCancel = document.getElementById('btnApologyCancel');
+        var btnConfirm = document.getElementById('btnApologyConfirm');
+        if (!modal) {
+            resolve(confirm('استعن بالله ولا تعجز، ولا تستبدل نفسك بغيرك فيستبدلك الله. هل أنت مصمم على الاعتذار؟'));
+            return;
+        }
+        modal.style.display = 'flex';
+
+        function cleanup(result) {
+            modal.style.display = 'none';
+            btnCancel.onclick = null;
+            btnConfirm.onclick = null;
+            if (!result) {
+                var toast = document.getElementById('istiAnaToast');
+                if (toast) {
+                    toast.style.display = 'block';
+                    setTimeout(function() { toast.style.display = 'none'; }, 3500);
+                }
+            }
+            resolve(result);
+        }
+
+        btnCancel.onclick = function() { cleanup(false); };
+        btnConfirm.onclick = function() { cleanup(true); };
+    });
+}
+
+function confirmKhatebApology(event, formEl) {
+    if (formEl.dataset.apologyConfirmed === '1') {
+        return true;
+    }
+    if (event) event.preventDefault();
+    askApologyConfirmation().then(function(confirmed) {
+        if (confirmed) {
+            formEl.dataset.apologyConfirmed = '1';
+            formEl.submit();
+        }
+    });
+    return false;
+}
+</script>
+
 </body>
 </html>

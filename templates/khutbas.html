@@ -373,8 +373,8 @@ function loadPendingAssignmentsForKhutbas() {
                             apologizeBtn.className = 'btn btn-sm btn-outline-secondary ms-1';
                             apologizeBtn.title = 'اعتذار عن الخطبة';
                             apologizeBtn.innerHTML = '<i class="fas fa-user-times"></i>';
-                            apologizeBtn.onclick = () => {
-                                if (!confirm('هل أنت متأكد من الاعتذار عن هذه الخطبة؟')) return;
+                            apologizeBtn.onclick = async () => {
+                                if (!(await askApologyConfirmation())) return;
                                 fetch(`/assignment/${a.id}/apologize`, { method: 'POST' })
                                     .then(r => r.json()).then(d => { alert(d.message); location.reload(); });
                             };
@@ -392,8 +392,8 @@ function loadPendingAssignmentsForKhutbas() {
         .catch(err => console.error('Error loading pending assignments:', err));
 }
 
-function apologizeWeek(khatebId) {
-    if (!confirm('هل تريد الاعتذار عن الأسبوع كاملًا؟ سيتم تعيين بديل لك ووضعك في راحة الأسبوع.')) return;
+async function apologizeWeek(khatebId) {
+    if (!(await askApologyConfirmation())) return;
     fetch(`/khateb/${khatebId}/apologize_week`, { method: 'POST' })
         .then(r => r.json())
         .then(d => { alert(d.message); location.reload(); })
