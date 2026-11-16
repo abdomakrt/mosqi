@@ -9,13 +9,15 @@
 #    1) ينسخ الكود من GitHub
 #    2) ينشئ بيئة افتراضية ويثبّت المتطلبات
 #    3) ينشئ .env مع مفتاح سري وكلمة مرور مدير (وتطبعها مرة واحدة)
-#    4) يهيّئ قاعدة البيانات (ترحيل idempotent)
+#    4) يهيّئ قاعدة البيانات والجداول الأساسية (ترحيل idempotent)
+#    5) يضبط ملف WSGI الخاص بـ PythonAnywhere تلقائياً
 # ============================================================
 set -e
 
 APP_DIR="$HOME/mosqi"
 VENV="$HOME/.virtualenvs/mosqi"
 REPO="https://github.com/abdomakrt/mosqi.git"
+PAW_WSGI="/var/www/${USER}_pythonanywhere_com_wsgi.py"
 
 echo "============================================"
 echo "  نشر نظام توزيع الخطباء - PythonAnywhere"
@@ -59,7 +61,9 @@ echo "    تم تثبيت المتطلبات"
 ENV_FILE="$APP_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
     "$VENV/bin/python" - <<'PYEOF'
+import os
 import secrets
+
 secret = secrets.token_hex(32)
 admin = secrets.token_urlsafe(12)
 with open('.env', 'w', encoding='utf-8') as f:
@@ -67,7 +71,6 @@ with open('.env', 'w', encoding='utf-8') as f:
     f.write('SECRET_KEY=%s\n' % secret)
     f.write('ADMIN_PASSWORD=%s\n' % admin)
     f.write('SESSION_COOKIE_SECURE=0\n')
-import os
 os.chmod('.env', 0o600)
 print('============================================')
 print('  كلمة مرور المدير على الخادم (تظهر مرة واحدة):')
@@ -87,15 +90,41 @@ echo "[5] مجلد instance جاهز"
 # ---------- 6) قاعدة البيانات ----------
 echo "[6] تجهيز قاعدة البيانات..."
 "$VENV/bin/python" - <<'PYEOF'
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.getcwd())
+from app import app, db
 from migrate import run_migrations
+
+with app.app_context():
+    db.create_all()
 run_migrations()
-print('    اكتمل الترحيل')
+print('    اكتمل الترحيل وإنشاء الجداول')
 PYEOF
 
-# ---------- 7) الفحص ----------
-echo "[7] فحص الجاهزية..."
+# ---------- 7) ضبط ملف WSGI تلقائياً ----------
+echo "[7] ضبط ملف WSGI..."
+if [ -f "$PAW_WSGI" ] || [ -w "/var/www" ]; then
+    cat <<WSGIEOF > "$PAW_WSGI"
+import os
+import sys
+
+project_home = '$APP_DIR'
+if project_home not in sys.path:
+    sys.path.insert(0, project_home)
+os.chdir(project_home)
+
+import wsgi
+application = getattr(wsgi, 'application', getattr(wsgi, 'app', None))
+WSGIEOF
+    echo "    تم تحديث ملف WSGI تلقائياً: $PAW_WSGI"
+else
+    echo "    [!] لم يُعثر على $PAW_WSGI بعد (تأكد من إنشاء Web App في تبويب Web أولاً)"
+fi
+
+# ---------- 8) الفحص ----------
+echo "[8] فحص الجاهزية..."
 "$VENV/bin/python" check_paw.py || true
 
 echo
@@ -105,13 +134,12 @@ echo "============================================"
 echo
 echo "  الخطوة الأخيرة في لوحة PythonAnywhere:"
 echo "    1) تبويب Web"
-echo "    2) اختر:  khateebs.pythonanywhere.com"
+echo "    2) اختر:  ${USER}.pythonanywhere.com"
 echo "    3) Source code:        $APP_DIR"
 echo "    4) Working directory:  $APP_DIR"
 echo "    5) Virtualenv:         $VENV"
-echo "    6) WSGI configuration file:"
-echo "         $APP_DIR/wsgi.py"
+echo "    6) WSGI configuration file: (تم ضبطه تلقائياً في $PAW_WSGI)"
 echo "    7) اضغط:  Reload"
 echo
-echo "  ثم افتح:  https://khateebs.pythonanywhere.com"
+echo "  ثم افتح:  https://${USER}.pythonanywhere.com"
 echo
