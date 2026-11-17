@@ -407,12 +407,40 @@ class Khateb(db.Model):
             'rest_weeks': self.rest_weeks,
             'availability_mode': self.availability_mode or 'always',
             'forbidden_mosques': json.loads(self.forbidden_mosques or '[]'),
-            'mosques_visited': json.loads(self.mosques_visited or '[]')
+            'mosques_visited': self.get_visited_mosques_list()
         }
 
-    def get_visited_mosques_list(self):
-        """إرجاع قائمة المساجد المزارة"""
-        return json.loads(self.mosques_visited or '[]')
+    def get_visited_mosques_list(self, exclude_week_date=None):
+        """إرجاع قائمة أرقام المساجد المزارة والمجدولة في الدورة الحالية لنفس الموضوع"""
+        visited = set(json.loads(self.mosques_visited or '[]'))
+        if not self.id:
+            return sorted(list(visited))
+        try:
+            assignment_cls = globals().get('Assignment')
+            if assignment_cls:
+                query = assignment_cls.query.filter(
+                    assignment_cls.khateb_id == self.id,
+                    assignment_cls.status != 'cancelled'
+                )
+                if exclude_week_date:
+                    query = query.filter(assignment_cls.week_date != exclude_week_date)
+
+                conditions = []
+                if self.current_topic:
+                    conditions.append(assignment_cls.khutba_topic == self.current_topic)
+                if self.seasonal_topic:
+                    conditions.append(assignment_cls.khutba_topic == self.seasonal_topic)
+                if self.last_topic_change:
+                    conditions.append(assignment_cls.created_at >= self.last_topic_change)
+
+                if conditions:
+                    query = query.filter(db.or_(*conditions))
+
+                for a in query.all():
+                    visited.add(a.mosque_id)
+        except Exception:
+            pass
+        return sorted(list(visited))
 
     def has_profile(self):
         """هل أكمل الخطيب ملفه؟ (موضوع الخطبة + المساجد المستثناة + نظام التوفر)
@@ -607,13 +635,15 @@ class DistributionEngine:
                     khateb.rest_weeks = 0
         db.session.commit()
 
-    def get_unvisited_mosques(self, khateb_id):
-        """الحصول على المساجد غير المزارة للخطيب"""
-        khateb = Khateb.query.get(khateb_id)
-        visited_mosques = set(khateb.get_visited_mosques_list())
+    def get_unvisited_mosques(self, khateb_id, target_friday=None):
+        """الحصول على المساجد غير المزارة للخطيب في الدورة الحالية"""
+        khateb = db.session.get(Khateb, khateb_id) if hasattr(db.session, 'get') else Khateb.query.get(khateb_id)
+        if not khateb:
+            return []
+        visited_mosques = set(khateb.get_visited_mosques_list(exclude_week_date=target_friday))
         all_mosques = set([m.id for m in Mosque.query.all()])
         unvisited = all_mosques - visited_mosques
-        return list(unvisited)
+        return sorted(list(unvisited))
 
     def distribute_for_week(self, target_friday):
         """توزيع الخطباء على المساجد لجمعة معينة"""
@@ -641,54 +671,82 @@ class DistributionEngine:
         if len(mosques) == 0:
             return False, "لا يوجد مساجد مسجلة"
 
-        assignments = []
-        
-        # توزيع الذكي: كل خطيب يذهب لمسجد لم يزره من قبل
-        used_mosques = set()
-        
+        # بناء خريطة المساجد المسموح بها لكل خطيب (غير مزارة وغير مستثناة في الدورة الحالية)
+        candidate_map = {}
+        visited_map = {}
         for khateb in available_khutbas:
-            unvisited = self.get_unvisited_mosques(khateb.id)
+            unvisited = self.get_unvisited_mosques(khateb.id, target_friday=target_friday)
             forbidden = set(khateb.get_forbidden_mosques_list())
-            
-            # تصفية المساجد المستخدمة بالفعل هذا الأسبوع والمساجد المستثناة
-            available_mosques = [m_id for m_id in unvisited if m_id not in used_mosques and m_id not in forbidden]
-            
-            if available_mosques:
-                # اختيار مسجد عشوائي من المتاحة
-                import random
-                chosen_mosque_id = random.choice(available_mosques)
-                used_mosques.add(chosen_mosque_id)
-                
-                # إنشاء التعيين
-                assignment = Assignment(
-                    khateb_id=khateb.id,
-                    mosque_id=chosen_mosque_id,
-                    week_date=target_friday,
-                    khutba_topic=khateb.get_effective_topic()
-                )
-                assignments.append(assignment)
-        
-        # إذا لم تُوزع جميع المساجد، وزّع الخطباء الذين لم يُعيّنوا بعد
-        # ⚠️ لا يُعيّن خطيب أنهى جميع المساجد — يحتاج تغيير الموضوع أولاً
-        remaining_mosques = [m for m in mosques if m.id not in used_mosques]
-        assigned_khatebs = set(a.khateb_id for a in assignments)
-        unassigned_khatebs = [k for k in available_khutbas
-                              if k.id not in assigned_khatebs
-                              and len(self.get_unvisited_mosques(k.id)) > 0]
+            allowed = [m.id for m in mosques if m.id in unvisited and m.id not in forbidden]
+            if allowed:
+                candidate_map[khateb.id] = allowed
+                visited_map[khateb.id] = set(khateb.get_visited_mosques_list(exclude_week_date=target_friday))
 
-        if remaining_mosques and unassigned_khatebs:
-            for mosque, khateb in zip(remaining_mosques, unassigned_khatebs):
-                forbidden = set(khateb.get_forbidden_mosques_list())
-                if mosque.id in forbidden:
-                    continue
-                assignment = Assignment(
-                    khateb_id=khateb.id,
-                    mosque_id=mosque.id,
-                    week_date=target_friday,
-                    khutba_topic=khateb.get_effective_topic()
-                )
-                assignments.append(assignment)
-                used_mosques.add(mosque.id)
+        eligible_khatebs = [k for k in available_khutbas if k.id in candidate_map]
+        if not eligible_khatebs:
+            return False, "جميع الخطباء المتاحين أنهوا دوراتهم الحالية ويحتاجون لتحديد مواضيع جديدة"
+
+        # فرز الخطباء حسب أولوية الدورة وخيارات الأقل (MRV)
+        # 1. من لديه خيارات أقل أولاً (MRV) لتفادي التعارض
+        # 2. من قطع شوطاً أكبر في دورتها الحالية لإنهاء دورته أولاً
+        sorted_khatebs = sorted(
+            eligible_khatebs,
+            key=lambda k: (len(candidate_map[k.id]), -len(visited_map[k.id]))
+        )
+
+        best_assignment = {}
+        best_score = (-1, -1)
+
+        def score(assignment_dict):
+            cycle_score = sum(len(visited_map.get(k_id, set())) + 1 for k_id in assignment_dict.keys())
+            return (len(assignment_dict), cycle_score)
+
+        def backtrack(index, current_assignment, used_mosques):
+            nonlocal best_assignment, best_score
+            cur_score = score(current_assignment)
+            if cur_score > best_score:
+                best_score = cur_score
+                best_assignment = dict(current_assignment)
+                if len(best_assignment) == min(len(sorted_khatebs), len(mosques)):
+                    if all(len(visited_map.get(k_id, set())) > 0 for k_id in best_assignment.keys()):
+                        return True
+
+            if index >= len(sorted_khatebs):
+                return False
+
+            k = sorted_khatebs[index]
+            options = [m_id for m_id in candidate_map[k.id] if m_id not in used_mosques]
+            import random
+            random.shuffle(options)
+
+            for m_id in options:
+                current_assignment[k.id] = m_id
+                used_mosques.add(m_id)
+                if backtrack(index + 1, current_assignment, used_mosques):
+                    return True
+                del current_assignment[k.id]
+                used_mosques.remove(m_id)
+
+            if backtrack(index + 1, current_assignment, used_mosques):
+                return True
+
+            return False
+
+        backtrack(0, {}, set())
+
+        if not best_assignment:
+            return False, "لم يتم العثور على توزيع متوافق بدون تكرار المساجد المزارة"
+
+        assignments = []
+        for khateb_id, chosen_mosque_id in best_assignment.items():
+            k_obj = db.session.get(Khateb, khateb_id) if hasattr(db.session, 'get') else Khateb.query.get(khateb_id)
+            assignment = Assignment(
+                khateb_id=khateb_id,
+                mosque_id=chosen_mosque_id,
+                week_date=target_friday,
+                khutba_topic=k_obj.get_effective_topic()
+            )
+            assignments.append(assignment)
 
         # حفظ التعيينات
         db.session.add_all(assignments)
@@ -699,7 +757,6 @@ class DistributionEngine:
             khateb_ids=json.dumps([a.khateb_id for a in assignments])
         )
         db.session.add(week_schedule)
-        
         db.session.commit()
 
         return True, f"تم إنشاء {len(assignments)} تعيين بنجاح"
