@@ -193,10 +193,15 @@ def maybe_activate_queued_topic(khateb):
     if not khateb.pending_topic_approved:
         return False
 
-    total_mosques = Mosque.query.count()
-    if not total_mosques:
+    all_mosques = set(m.id for m in Mosque.query.all())
+    if not all_mosques:
         return False
-    if len(khateb.get_visited_mosques_list()) < total_mosques:
+    forbidden = set(khateb.get_forbidden_mosques_list())
+    allowed = all_mosques - forbidden
+    if not allowed:
+        return False
+    visited = set(khateb.get_visited_mosques_list())
+    if not allowed.issubset(visited):
         return False
 
     activate_new_topic(khateb, khateb.pending_topic)
@@ -565,6 +570,7 @@ class DistributionEngine:
         يُستبعد:
         - الخطباء غير المعتمدين من المدير (is_active = 0)
         - الخطباء الذين لم يكملوا ملفهم (موضوع الخطبة + المساجد المزارة + نظام التوفر)
+        - الخطباء الذين أنهوا جميع المساجد وبانتظار موضوع جديد للدورة القادمة
         """
         # حسب طلب المستخدم: تجاهل نظام الراحة عند التوزيع الأولي
         khutbas = Khateb.query.all()
@@ -580,6 +586,14 @@ class DistributionEngine:
             # يجب أن يكون قد أكمل ملفه (الخطباء القدامى ملفهم جاهز)
             if not khateb.has_profile():
                 continue
+
+            # تفعيل أي موضوع مجدول تلقائياً إذا كان الخطيب قد أنهى جميع مساجده
+            maybe_activate_queued_topic(khateb)
+
+            # إذا أنهى جميع المساجد المتاحة له ولم يحدد موضوعاً جديداً => لا يدخل التوزيع حتى يغير الموضوع
+            if self.should_change_topic(khateb.id):
+                continue
+
             mode = khateb.availability_mode or 'always'
             if mode == 'alternate' and week_index is not None:
                 offset = khateb.alternate_offset or 0
@@ -636,6 +650,9 @@ class DistributionEngine:
         mosques = Mosque.query.all()
 
         if len(available_khutbas) == 0:
+            waiting = [k for k in Khateb.query.all() if k.is_active in (1, True) and k.has_profile() and self.should_change_topic(k.id)]
+            if waiting:
+                return False, f"لا يوجد خطباء متاحون: ({', '.join(k.name for k in waiting)}) أنهوا جميع المساجد ويجب تحديد موضوع جديد لبدء الدورة التالية"
             return False, "لا يوجد خطباء متاحون حالياً"
 
         if len(mosques) == 0:
@@ -718,14 +735,18 @@ class DistributionEngine:
         return False, "تم التحديث بنجاح"
 
     def should_change_topic(self, khateb_id):
-        """فحص إذا كان يجب على الخطيب تغيير الموضوع"""
+        """فحص إذا كان يجب على الخطيب تغيير الموضوع (أنهى دورة كاملة على جميع المساجد المتاحة له)"""
         khateb = Khateb.query.get(khateb_id)
-        visited = khateb.get_visited_mosques_list()
-        total_mosques = len(Mosque.query.all())
-
-        if total_mosques == 0:
+        if not khateb:
             return False
-        return len(visited) >= total_mosques
+        all_mosques = set(m.id for m in Mosque.query.all())
+        forbidden = set(khateb.get_forbidden_mosques_list())
+        allowed_mosques = all_mosques - forbidden
+
+        if not allowed_mosques:
+            return False
+        visited = set(khateb.get_visited_mosques_list())
+        return allowed_mosques.issubset(visited)
 
     def reset_khateb_mosques(self, khateb_id):
         """إعادة تعيين قائمة المساجد للخطيب"""
@@ -2166,7 +2187,7 @@ def my():
     total_mosques = Mosque.query.count()
     visited = khateb.get_visited_mosques_list()
     visited_count = len(visited)
-    needs_new_topic = bool(total_mosques) and visited_count >= total_mosques
+    needs_new_topic = engine.should_change_topic(khateb.id)
 
     # جدول الأسابيع الأربعة القادمة (نفس منطق /api/khateb/<id>/schedule)
     current_friday = engine.get_current_friday()
