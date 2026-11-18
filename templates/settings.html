@@ -828,18 +828,22 @@ function showKhatebSchedule(khatebId, name) {
     document.getElementById('khatebScheduleName').textContent = name;
     document.getElementById('khatebScheduleContent').innerHTML = 'جاري التحميل...';
     new bootstrap.Modal(document.getElementById('khatebScheduleModal')).show();
-    fetch('/api/khateb/' + khatebId + '/schedule?weeks=4')
+    fetch('/api/khateb/' + khatebId + '/schedule')
     .then(r => r.json())
     .then(data => {
-        let html = '<table class="table table-bordered"><thead><tr><th>الأسبوع (جمعة)</th><th>المسجد</th><th>الموضوع</th><th>الحالة</th></tr></thead><tbody>';
+        let html = '<div class="table-responsive"><table class="table table-bordered table-hover align-middle mb-0"><thead><tr class="table-light"><th>الأسبوع (جمعة)</th><th>المسجد</th><th>الموضوع</th><th>الحالة</th></tr></thead><tbody>';
         data.schedule.forEach(s => {
             if (s.has_assignment) {
-                html += '<tr><td>' + s.week_date + '</td><td>' + s.mosque_name + '</td><td>' + s.topic + '</td><td>' + s.status + '</td></tr>';
+                let badgeClass = s.status === 'confirmed' ? 'bg-primary' : (s.status === 'completed' ? 'bg-success' : 'bg-warning text-dark');
+                let statusText = s.status === 'confirmed' ? 'مؤكد' : (s.status === 'completed' ? 'أُديت' : s.status);
+                html += '<tr><td><span class="fw-bold text-primary">' + s.week_date + '</span></td><td><strong>' + s.mosque_name + '</strong></td><td>' + s.topic + '</td><td><span class="badge ' + badgeClass + '">' + statusText + '</span></td></tr>';
+            } else if (s.is_rest) {
+                html += '<tr class="table-warning bg-opacity-25"><td><span class="text-muted">' + s.week_date + '</span></td><td colspan="3"><span class="badge bg-warning text-dark me-2"><i class="fas fa-bed ms-1"></i> راحة دورية</span> (جاهز كاحتياط)</td></tr>';
             } else {
-                html += '<tr class="table-light"><td>' + s.week_date + '</td><td colspan="3" class="text-center text-muted">لا يوجد تعيين</td></tr>';
+                html += '<tr class="table-light"><td><span class="text-muted">' + s.week_date + '</span></td><td colspan="3" class="text-muted"><span class="badge bg-light text-muted border"><i class="fas fa-clock ms-1"></i> لم يتم التوزيع بعد</span></td></tr>';
             }
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         document.getElementById('khatebScheduleContent').innerHTML = html;
     });
 }

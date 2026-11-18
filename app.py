@@ -645,6 +645,35 @@ class DistributionEngine:
         unvisited = all_mosques - visited_mosques
         return sorted(list(unvisited))
 
+    def compute_rest_stats(self, khateb_id, target_date):
+        """حساب إحصائيات الخطبة والراحة المتتالية للخطيب قبل تاريخ معين لتنظيم التناوب"""
+        cur_date = target_date - timedelta(days=7)
+        consecutive_p = 0
+        consecutive_r = 0
+        history = []
+        for _ in range(8):
+            a = Assignment.query.filter(
+                Assignment.khateb_id == khateb_id,
+                Assignment.week_date == cur_date,
+                Assignment.status != 'cancelled'
+            ).first()
+            history.append(1 if a else 0)
+            cur_date -= timedelta(days=7)
+
+        for val in history:
+            if val == 1:
+                if consecutive_r == 0:
+                    consecutive_p += 1
+                else:
+                    break
+            else:
+                if consecutive_p == 0:
+                    consecutive_r += 1
+                else:
+                    break
+
+        return consecutive_p, consecutive_r
+
     def distribute_for_week(self, target_friday):
         """توزيع الخطباء على المساجد لجمعة معينة"""
         # السماح بإعادة التوزيع تلقائياً (حذف التعيينات والجدول السابق لهذا الأسبوع)
@@ -671,9 +700,10 @@ class DistributionEngine:
         if len(mosques) == 0:
             return False, "لا يوجد مساجد مسجلة"
 
-        # بناء خريطة المساجد المسموح بها لكل خطيب (غير مزارة وغير مستثناة في الدورة الحالية)
+        # بناء خريطة المساجد المسموح بها لكل خطيب وإحصائيات التناوب والراحة
         candidate_map = {}
         visited_map = {}
+        urgency_map = {}
         for khateb in available_khutbas:
             unvisited = self.get_unvisited_mosques(khateb.id, target_friday=target_friday)
             forbidden = set(khateb.get_forbidden_mosques_list())
@@ -681,35 +711,41 @@ class DistributionEngine:
             if allowed:
                 candidate_map[khateb.id] = allowed
                 visited_map[khateb.id] = set(khateb.get_visited_mosques_list(exclude_week_date=target_friday))
+                cp, cr = self.compute_rest_stats(khateb.id, target_friday)
+                # معادلة أولوية الخطبة وتناوب الراحة:
+                # - إعطاء أولوية عظمى لمن كان في راحة (cr * 10) حتى يتناوب الجميع ولا يستمر أحد في الراحة
+                # - خصم لمن خطب لأسابيع متتالية (cp * 3) لإتاحة أسبوع الراحة له بالتناوب
+                # - خصم لعدد المساجد المزارة لموازنة تقدم الخطباء معاً
+                urgency = (cr * 10) - (cp * 3) - len(visited_map[khateb.id])
+                urgency_map[khateb.id] = urgency
 
         eligible_khatebs = [k for k in available_khutbas if k.id in candidate_map]
         if not eligible_khatebs:
             return False, "جميع الخطباء المتاحين أنهوا دوراتهم الحالية ويحتاجون لتحديد مواضيع جديدة"
 
-        # فرز الخطباء حسب أولوية الدورة وخيارات الأقل (MRV)
-        # 1. من لديه خيارات أقل أولاً (MRV) لتفادي التعارض
-        # 2. من قطع شوطاً أكبر في دورتها الحالية لإنهاء دورته أولاً
+        # فرز الخطباء حسب أولوية الخطبة (من في راحة أولاً) مع الأخذ بمبدأ الأقل خيارات (MRV)
         sorted_khatebs = sorted(
             eligible_khatebs,
-            key=lambda k: (len(candidate_map[k.id]), -len(visited_map[k.id]))
+            key=lambda k: (-urgency_map[k.id], len(candidate_map[k.id]))
         )
 
         best_assignment = {}
-        best_score = (-1, -1)
+        best_score = [-1, -999999]
 
         def score(assignment_dict):
-            cycle_score = sum(len(visited_map.get(k_id, set())) + 1 for k_id in assignment_dict.keys())
-            return (len(assignment_dict), cycle_score)
+            # معيار التقييم: عدد المساجد الموزعة، ثم مجموع أولوية الخطبة والتناوب
+            total_urgency = sum(urgency_map.get(k_id, 0) for k_id in assignment_dict.keys())
+            return [len(assignment_dict), total_urgency]
 
         def backtrack(index, current_assignment, used_mosques):
-            nonlocal best_assignment, best_score
             cur_score = score(current_assignment)
-            if cur_score > best_score:
-                best_score = cur_score
-                best_assignment = dict(current_assignment)
+            if cur_score[0] > best_score[0] or (cur_score[0] == best_score[0] and cur_score[1] > best_score[1]):
+                best_score[0] = cur_score[0]
+                best_score[1] = cur_score[1]
+                best_assignment.clear()
+                best_assignment.update(current_assignment)
                 if len(best_assignment) == min(len(sorted_khatebs), len(mosques)):
-                    if all(len(visited_map.get(k_id, set())) > 0 for k_id in best_assignment.keys()):
-                        return True
+                    return True
 
             if index >= len(sorted_khatebs):
                 return False
@@ -952,31 +988,82 @@ def add_khateb():
 def distribution():
     """صفحة التوزيع الأسبوعي"""
     engine = DistributionEngine()
-    current_friday = engine.get_current_friday()
+    
+    # الحصول على جميع الأسابيع المسجلة في جدول التعيينات
+    distinct_weeks = [
+        r[0] for r in db.session.query(Assignment.week_date).distinct().order_by(Assignment.week_date.desc()).all()
+    ]
+    
+    engine_friday = engine.get_current_friday()
+    
+    date_str = request.args.get('date')
+    if date_str:
+        try:
+            current_friday = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            current_friday = engine_friday
+    else:
+        # إذا لم يتم تحديد تاريخ، نأخذ الجمعة القادمة إذا وجدت لها تعيينات، أو أحدث أسبوع مسجل
+        if engine_friday in distinct_weeks:
+            current_friday = engine_friday
+        elif distinct_weeks:
+            current_friday = distinct_weeks[0]
+        else:
+            current_friday = engine_friday
     
     # الحصول على التعيينات لهذا الأسبوع
-    assignments = Assignment.query.filter_by(week_date=current_friday)\
-        .order_by(Assignment.mosque_id).all()
+    assignments = Assignment.query.filter_by(week_date=current_friday)        .order_by(Assignment.mosque_id).all()
     
     # تحويل التعيينات إلى قواميس
     assignment_dicts = [assignment.to_dict() for assignment in assignments]
     
     # إحصائيات
     total_mosques = Mosque.query.count()
-    assigned_mosques = len(set(a.mosque_id for a in assignments))
-    remaining_mosques = total_mosques - assigned_mosques
+    active_assignments = [a for a in assignments if a.status != 'cancelled']
+    assigned_mosques = len(set(a.mosque_id for a in active_assignments))
+    remaining_mosques = max(0, total_mosques - assigned_mosques)
+    
+    # حساب الخطباء الاحتياطيين (الذين في راحة لهذا الأسبوع)
+    assigned_khateb_ids = {a.khateb_id for a in active_assignments}
+    available_khutbas = engine.get_available_khutbas(current_friday)
+    
+    reserve_khutbas = []
+    for khateb in available_khutbas:
+        if khateb.id not in assigned_khateb_ids:
+            visited = khateb.get_visited_mosques_list()
+            remaining_in_cycle = max(0, total_mosques - len(visited))
+            reserve_khutbas.append({
+                'id': khateb.id,
+                'name': khateb.name,
+                'phone': khateb.phone or '',
+                'current_topic': khateb.current_topic,
+                'visited_count': len(visited),
+                'remaining_mosques_count': remaining_in_cycle,
+                'total_mosques': total_mosques,
+                'status_label': 'راحة دورية (جاهز كاحتياط)'
+            })
     
     distribution_stats = {
-        'current_friday': current_friday,
-        'total_assignments': len(assignments),
+        'current_friday': current_friday.strftime('%Y-%m-%d'),
+        'total_assignments': len(active_assignments),
         'assigned_mosques': assigned_mosques,
         'remaining_mosques': remaining_mosques,
-        'total_mosques': total_mosques
+        'total_mosques': total_mosques,
+        'reserve_count': len(reserve_khutbas)
     }
+    
+    available_weeks = [w.strftime('%Y-%m-%d') for w in distinct_weeks]
+    current_friday_str = current_friday.strftime('%Y-%m-%d')
+    if current_friday_str not in available_weeks:
+        available_weeks.append(current_friday_str)
+        available_weeks.sort(reverse=True)
     
     return render_template('distribution.html', 
                          assignments=assignment_dicts, 
-                         stats=distribution_stats)
+                         reserve_khutbas=reserve_khutbas, 
+                         stats=distribution_stats,
+                         available_weeks=available_weeks,
+                         selected_date=current_friday_str)
 
 
 @app.route('/distribution/create', methods=['POST'])
@@ -1645,29 +1732,54 @@ def settings_reassign_week(date):
 @admin_required
 def api_khateb_schedule(khateb_id):
     """عرض جدول خطيب معين لأسابيع قادمة"""
-    weeks = request.args.get('weeks', 4, type=int)
+    weeks = request.args.get('weeks', type=int)
     engine = DistributionEngine()
     khateb = Khateb.query.get(khateb_id)
     if not khateb:
         return jsonify({'error': 'الخطيب غير موجود'}), 404
     
-    schedule = []
+    today = date.today()
     current = engine.get_current_friday()
-    for i in range(weeks):
-        week_date = current + timedelta(days=7*i)
+    
+    scheduled_weeks = [
+        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.week_date >= today)            .distinct().order_by(Assignment.week_date.asc()).all()
+    ]
+    furthest_week = max(scheduled_weeks) if scheduled_weeks else current
+    end_date = max(furthest_week, current + timedelta(days=7 * 3))
+    
+    if weeks is not None:
+        total_weeks = max(weeks, ((end_date - current).days // 7) + 1)
+    else:
+        total_weeks = ((end_date - current).days // 7) + 1
+    
+    total_weeks = max(4, min(24, total_weeks))
+    base_week_dates = [current + timedelta(days=7 * i) for i in range(total_weeks)]
+    
+    khateb_weeks = [
+        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.khateb_id == khateb_id, Assignment.week_date >= today)            .distinct().all()
+    ]
+    week_dates = sorted(list(set(base_week_dates) | set(khateb_weeks)))
+    system_distributed_set = set(scheduled_weeks)
+    
+    schedule = []
+    for week_date in week_dates:
         assignment = Assignment.query.filter_by(khateb_id=khateb_id, week_date=week_date).first()
+        is_distributed_week = week_date in system_distributed_set
         if assignment:
             schedule.append({
                 'week_date': week_date.strftime('%Y-%m-%d'),
                 'has_assignment': True,
                 'mosque_name': assignment.mosque.name if assignment.mosque else None,
                 'topic': assignment.khutba_topic,
-                'status': assignment.status
+                'status': assignment.status,
+                'is_rest': False
             })
         else:
             schedule.append({
                 'week_date': week_date.strftime('%Y-%m-%d'),
-                'has_assignment': False
+                'has_assignment': False,
+                'is_rest': is_distributed_week,
+                'rest_label': 'راحة دورية (احتياط)' if is_distributed_week else 'لم يتم التوزيع بعد'
             })
     
     return jsonify({
@@ -1705,10 +1817,31 @@ def api_week_details(date):
         return jsonify({'error': 'تنسيق تاريخ غير صحيح'}), 400
     
     assignments = Assignment.query.filter_by(week_date=week_date).all()
+    active_assignments = [a for a in assignments if a.status != 'cancelled']
+    assigned_ids = {a.khateb_id for a in active_assignments}
+    
+    engine = DistributionEngine()
+    available_khutbas = engine.get_available_khutbas(week_date)
+    total_mosques = Mosque.query.count()
+    
+    reserve_khutbas = []
+    for khateb in available_khutbas:
+        if khateb.id not in assigned_ids:
+            visited = khateb.get_visited_mosques_list()
+            reserve_khutbas.append({
+                'id': khateb.id,
+                'name': khateb.name,
+                'phone': khateb.phone or '',
+                'current_topic': khateb.current_topic,
+                'visited_count': len(visited),
+                'remaining_mosques_count': max(0, total_mosques - len(visited)),
+                'status_label': 'راحة دورية (جاهز كاحتياط)'
+            })
     
     result = {
         'week_date': date,
-        'assignments': [assignment.to_dict() for assignment in assignments]
+        'assignments': [assignment.to_dict() for assignment in assignments],
+        'reserve_khutbas': reserve_khutbas
     }
     
     return jsonify(result)
@@ -1799,7 +1932,7 @@ def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
             mosque_id=target_mosque,
             week_date=target_week,
             khutba_topic=replacement_khateb.current_topic,
-            status='pending',
+            status='confirmed',
             replacement_of_id=assignment.id
         )
         db.session.add(new_assignment)
@@ -1842,7 +1975,7 @@ def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
                     mosque_id=chosen,
                     week_date=target_week,
                     khutba_topic=orig_khateb.current_topic,
-                    status='pending'
+                    status='confirmed'
                 )
                 db.session.add(new_attach)
                 db.session.flush()
@@ -2228,9 +2361,26 @@ def my():
     visited_count = len(visited)
     needs_new_topic = bool(total_mosques) and visited_count >= total_mosques
 
-    # جدول الأسابيع الأربعة القادمة (نفس منطق /api/khateb/<id>/schedule)
+    # جدول الأسابيع: يتم احتسابه ديناميكياً ليشمل كافة الأسابيع المجدولة في النظام
+    # وأي تعيينات قادمة للخطيب حتى لا تُحجب أي جمعة تم توزيعها
+    today = date.today()
     current_friday = engine.get_current_friday()
-    week_dates = [current_friday + timedelta(days=7 * i) for i in range(4)]
+
+    scheduled_weeks = [
+        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.week_date >= today)            .distinct().order_by(Assignment.week_date.asc()).all()
+    ]
+    furthest_week = max(scheduled_weeks) if scheduled_weeks else current_friday
+    end_date = max(furthest_week, current_friday + timedelta(days=7 * 3))
+    total_weeks = ((end_date - current_friday).days // 7) + 1
+    total_weeks = max(4, min(24, total_weeks))
+    base_week_dates = [current_friday + timedelta(days=7 * i) for i in range(total_weeks)]
+    
+    khateb_weeks = [
+        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.khateb_id == khateb.id, Assignment.week_date >= today)            .distinct().all()
+    ]
+    week_dates = sorted(list(set(base_week_dates) | set(khateb_weeks)))
+    system_distributed_set = set(scheduled_weeks)
+
     assignments = Assignment.query.filter(
         Assignment.khateb_id == khateb.id,
         Assignment.week_date.in_(week_dates)
@@ -2242,9 +2392,12 @@ def my():
 
     schedule = []
     for wd in week_dates:
+        is_distributed_week = wd in system_distributed_set
         schedule.append({
             'week_date': wd,
-            'assignments': by_week.get(wd, [])
+            'assignments': by_week.get(wd, []),
+            'is_rest': is_distributed_week and not by_week.get(wd),
+            'is_distributed': is_distributed_week
         })
 
     return render_template(
@@ -2263,7 +2416,7 @@ def my():
 @app.route('/my/assignment/<int:assignment_id>/apologize', methods=['POST'])
 @login_required
 def my_apologize_assignment(assignment_id):
-    """اعتذار الخطيب عن تعيين: cancelled + محاولة تعيين بديل"""
+    """اعتذار الخطيب عن تعيين: cancelled + تعيين بديل مؤكد تلقائياً"""
     khateb = current_khateb()
     if not khateb:
         logout_session()
@@ -2279,68 +2432,24 @@ def my_apologize_assignment(assignment_id):
         return redirect(url_for('my'))
 
     replacement_id, _attached_id = cancel_and_reassign(
-        assignment, update_visited=False, attach_original=False
+        assignment, update_visited=True, attach_original=False
     )
     db.session.commit()
 
     if replacement_id:
-        flash('تم تسجيل اعتذارك وسيتم تعيين خطيب بديل في المسجد', 'success')
+        replacement_a = Assignment.query.get(replacement_id)
+        rep_name = replacement_a.khateb.name if replacement_a and replacement_a.khateb else 'خطيب بديل'
+        flash(f'تم تسجيل اعتذارك نهائياً وتعيين ({rep_name}) كبديل مؤكد تلقائياً في المسجد.', 'success')
     else:
-        flash('تم تسجيل اعتذارك عن هذه الخطبة', 'success')
+        flash('تم تسجيل اعتذارك نهائياً عن هذه الخطبة (لا يوجد خطيب بديل متاح حالياً).', 'warning')
     return redirect(url_for('my'))
 
 
 @app.route('/my/assignment/<int:assignment_id>/undo_apologize', methods=['POST'])
 @login_required
 def my_undo_apologize(assignment_id):
-    """التراجع عن اعتذار الخطيب: إعادة التعيين الملغى وإلغاء البديل الذي حُلّ محلّه"""
-    khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
-
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment or assignment.khateb_id != khateb.id:
-        flash('التعيين غير موجود', 'error')
-        return redirect(url_for('my'))
-
-    if assignment.status != 'cancelled':
-        flash('هذا التعيين غير ملغى', 'error')
-        return redirect(url_for('my'))
-
-    # ⚠️ تحقق: لا يمكن خطبتان في جمعة واحدة
-    has_active = Assignment.query.filter(
-        Assignment.khateb_id == khateb.id,
-        Assignment.week_date == assignment.week_date,
-        Assignment.status != 'cancelled',
-        Assignment.id != assignment.id
-    ).first()
-    if has_active:
-        flash('لديك تعيين آخر فعّال في نفس الأسبوع — لا يمكن خطبتان في جمعة واحدة', 'error')
-        return redirect(url_for('my'))
-
-    # إلغاء التعيين البديل (إن وُجد) لأنه لم تعد هناك حاجة إليه بعد التراجع
-    replacements = Assignment.query.filter_by(replacement_of_id=assignment.id).all()
-    for rep in replacements:
-        if rep.status != 'pending':
-            continue
-        # إزالة المسجد من زيارات الخطيب البديل (إذ لم يؤدِّ الخطبة بعد)
-        rep_khateb = Khateb.query.get(rep.khateb_id)
-        if rep_khateb:
-            visited = rep_khateb.get_visited_mosques_list()
-            if rep.mosque_id in visited:
-                visited.remove(rep.mosque_id)
-                rep_khateb.mosques_visited = json.dumps(visited)
-                db.session.add(rep_khateb)
-        rep.status = 'cancelled'
-        db.session.add(rep)
-
-    # إعادة التعيين الأصلي
-    assignment.status = 'confirmed'
-    db.session.add(assignment)
-    db.session.commit()
-
-    flash('تم التراجع عن الإلغاء، وأُعيد تعيينك في هذا الأسبوع', 'success')
+    """تم إلغاء ميزة التراجع عن الاعتذار منعاً للتعارض مع الخطيب البديل والخلل"""
+    flash('لا يمكن التراجع عن الاعتذار بعد تأكيده، حيث تم تعيين خطيب بديل مؤكد للمسجد فوراً منعاً للتعارض.', 'error')
     return redirect(url_for('my'))
 
 

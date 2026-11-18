@@ -2,11 +2,42 @@
 
 {% block title %}ملف الخطيب - نظام توزيع الخطباء{% endblock %}
 
+{% block extra_css %}
+<style>
+    .mosque-check-card {
+        padding: 10px 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background-color: #f8fafc;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    .mosque-check-card:hover {
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+    .mosque-check-card .form-check-input {
+        margin-top: 0;
+        float: none;
+        flex-shrink: 0;
+    }
+    .mosque-check-card .form-check-label {
+        width: 100%;
+        cursor: pointer;
+        margin-bottom: 0;
+        font-weight: 500;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-12">
         <div class="mb-4">
-            <h1><i class="fas fa-id-card"></i> ملف الخطيب</h1>
+            <h1><i class="fas fa-id-card text-primary"></i> ملف الخطيب</h1>
             <p class="text-muted">
                 أهلاً يا الشيخ {{ khateb.name }} — أكمل بياناتك التالية لتُدرج تلقائياً في توزيع الجدول
             </p>
@@ -18,9 +49,9 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i>
+            <i class="fas fa-info-circle ms-1"></i>
             هذه البيانات ضرورية لتوزيع المساجد عليك بشكل صحيح.
-            بعد حفظها، سيراجعها مدير النظام وسمح لك بالدخول،
+            بعد حفظها، سيراجعها مدير النظام ويسمح لك بالدخول،
             وتظهر تلقائياً في جدول التوزيع.
         </div>
     </div>
@@ -33,16 +64,16 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-comment-dots"></i> موضوع خطبتك الحالية</h5>
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="fas fa-comment-dots text-primary ms-1"></i> موضوع خطبتك الحالية</h5>
                 </div>
                 <div class="card-body">
-                    <label for="currentTopic" class="form-label">ما هو موضوع خطبتك الحالية؟</label>
+                    <label for="currentTopic" class="form-label fw-bold small">ما هو موضوع خطبتك الحالية؟</label>
                     <input type="text" class="form-control" id="currentTopic" name="current_topic"
                            maxlength="300" required
                            value="{{ khateb.current_topic if khateb.current_topic != 'موضوع افتراضي' else '' }}"
                            placeholder="مثال: فضل الله ورعاه — حديث إنما الأعمال بالنيات">
-                    <small class="text-muted">
+                    <small class="text-muted d-block mt-1">
                         هذا الموضوع يظهر في توزيعاتك الحالية، ويمكنك تغييره لاحقاً أو طلب موضوع جديد.
                     </small>
                 </div>
@@ -53,15 +84,15 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-calendar-check"></i> هل تخطب كل جمعة أم جمعة وجمعة لا؟</h5>
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="fas fa-calendar-check text-success ms-1"></i> هل تخطب كل جمعة أم جمعة وجمعة لا؟</h5>
                 </div>
                 <div class="card-body">
-                    <div class="form-check mb-3">
+                    <div class="form-check p-3 mb-3 rounded border bg-light bg-opacity-50">
                         <input class="form-check-input" type="radio" name="availability_mode"
                                id="modeAlways" value="always"
                                {% if khateb.availability_mode != 'alternate' %}checked{% endif %}>
-                        <label class="form-check-label" for="modeAlways">
+                        <label class="form-check-label w-100" for="modeAlways">
                             <strong>أخطب كل جمعة</strong>
                             <br>
                             <small class="text-muted">
@@ -70,11 +101,11 @@
                         </label>
                     </div>
 
-                    <div class="form-check">
+                    <div class="form-check p-3 rounded border bg-light bg-opacity-50">
                         <input class="form-check-input" type="radio" name="availability_mode"
                                id="modeAlternate" value="alternate"
                                {% if khateb.availability_mode == 'alternate' %}checked{% endif %}>
-                        <label class="form-check-label" for="modeAlternate">
+                        <label class="form-check-label w-100" for="modeAlternate">
                             <strong>أخطب جمعة وأغيب جمعة</strong>
                             <br>
                             <small class="text-muted">
@@ -85,12 +116,12 @@
 
                     <div class="mt-3" id="offsetWrap"
                          {% if khateb.availability_mode != 'alternate' %}style="display:none;"{% endif %}>
-                        <label for="alternateOffset" class="form-label">
+                        <label for="alternateOffset" class="form-label fw-bold small">
                             رقم الأسبوع الذي تبدأ به دورتك (اختياري)
                         </label>
                         <input type="number" class="form-control" id="alternateOffset" name="alternate_offset"
                                min="0" max="10" value="{{ khateb.alternate_offset or 0 }}">
-                        <small class="text-muted">
+                        <small class="text-muted d-block mt-1">
                             اتركه 0 إن لم تكن لديك تفضيلات خاصة — سيبدأ النظام الترتيب تلقائياً.
                         </small>
                     </div>
@@ -102,8 +133,8 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-mosque"></i> المساجد التي خطبت فيها مسبقاً</h5>
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="fas fa-mosque text-info ms-1"></i> المساجد التي خطبت فيها مسبقاً</h5>
                 </div>
                 <div class="card-body">
                     <p class="text-muted small">
@@ -111,10 +142,10 @@
                         حتى تُبدأ دورة موضوع جديدة.
                     </p>
                     {% if mosques %}
-                    <div class="row">
+                    <div class="row g-2">
                         {% for mosque in mosques %}
-                        <div class="col-md-6 mb-2">
-                            <div class="form-check">
+                        <div class="col-12 col-md-6">
+                            <div class="mosque-check-card">
                                 <input class="form-check-input" type="checkbox"
                                        name="visited_mosques" value="{{ mosque.id }}"
                                        id="vmosque{{ mosque.id }}"
@@ -128,7 +159,7 @@
                     </div>
                     {% else %}
                     <div class="alert alert-warning mb-0">
-                        <i class="fas fa-exclamation-triangle"></i>
+                        <i class="fas fa-exclamation-triangle ms-1"></i>
                         لا توجد مساجد مسجلة في النظام حالياً. أبلغ مدير النظام لإضافة المساجد،
                         ثم عد لتحديث هذه الصفحة.
                     </div>
@@ -141,8 +172,8 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-ban"></i> المساجد المستثناة (لا تخطب فيها)</h5>
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="fas fa-ban text-danger ms-1"></i> المساجد المستثناة (لا تخطب فيها)</h5>
                 </div>
                 <div class="card-body">
                     <p class="text-muted small">
@@ -150,10 +181,10 @@
                         لن يُوزَّع الخطيب عليها إطلاقاً.
                     </p>
                     {% if mosques %}
-                    <div class="row">
+                    <div class="row g-2">
                         {% for mosque in mosques %}
-                        <div class="col-md-6 mb-2">
-                            <div class="form-check">
+                        <div class="col-12 col-md-6">
+                            <div class="mosque-check-card">
                                 <input class="form-check-input" type="checkbox"
                                        name="forbidden_mosques" value="{{ mosque.id }}"
                                        id="fmosque{{ mosque.id }}"
@@ -175,9 +206,9 @@
 
     <div class="row mb-4">
         <div class="col-12">
-            <button type="submit" class="btn btn-success btn-lg w-100"
+            <button type="submit" class="btn btn-success btn-lg w-100 fw-bold"
                     onclick="return confirm('هل تريد حفظ بياناتك؟');">
-                <i class="fas fa-save"></i> حفظ البيانات وإرسالها للمدير
+                <i class="fas fa-save ms-1"></i> حفظ البيانات وإرسالها للمدير
             </button>
             {% if not token %}
             <a href="{{ url_for('my') }}" class="btn btn-link w-100 mt-2">العودة لجدولي</a>
