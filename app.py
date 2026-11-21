@@ -65,11 +65,14 @@ def warn_dev_defaults():
 # المصادقة والصلاحيات (دوران فقط: مدير / خطيب)
 # ============================================
 
+ARABIC_INDIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+
 def normalize_phone(phone):
-    """توحيد صيغة رقم الجوال (مثال: 0501234567 أو +966501234567 -> 966501234567)"""
+    """توحيد صيغة رقم الجوال (مثال: 0501234567 أو +966501234567 -> 966501234567) مع دعم الأرقام العربية"""
     if not phone:
         return ''
-    digits = re.sub(r'\D', '', str(phone))
+    cleaned = str(phone).translate(ARABIC_INDIC_DIGITS)
+    digits = re.sub(r'\D', '', cleaned)
     if digits.startswith('00'):
         digits = digits[2:]
     if digits.startswith('966'):
@@ -452,15 +455,16 @@ class Khateb(db.Model):
             return True
         return bool(self.profile_complete)
 
-    def is_seasonal_active(self):
-        """هل يوجد موضوع موسمي ساري الآن؟"""
+    def is_seasonal_active(self, target_date=None):
+        """هل يوجد موضوع موسمي ساري الآن أو في تاريخ مستهدف؟"""
         if not self.seasonal_topic or not self.seasonal_until:
             return False
-        return date.today() <= self.seasonal_until
+        check_date = target_date or date.today()
+        return check_date <= self.seasonal_until
 
-    def get_effective_topic(self):
+    def get_effective_topic(self, target_date=None):
         """الموضوع المعروض للخطيب: الموضوع الموسمي إن كان سارياً، وإلا الموضوع الأساسي"""
-        if self.is_seasonal_active():
+        if self.is_seasonal_active(target_date):
             return self.seasonal_topic
         return self.current_topic
 
@@ -780,7 +784,7 @@ class DistributionEngine:
                 khateb_id=khateb_id,
                 mosque_id=chosen_mosque_id,
                 week_date=target_friday,
-                khutba_topic=k_obj.get_effective_topic()
+                khutba_topic=k_obj.get_effective_topic(target_friday)
             )
             assignments.append(assignment)
 
